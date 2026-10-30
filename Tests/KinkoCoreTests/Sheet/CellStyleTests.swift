@@ -3,121 +3,247 @@ import Testing
 
 @testable import KinkoCore
 
-private func bold() -> CellStyle {
-  var style = CellStyle()
-  style.bold = true
-  return style
-}
-
-@Test func numberFormatsShowNumbers() {
-  #expect(NumberFormat.general.format(1234.5) == nil)
-  #expect(NumberFormat.number(decimals: 0, grouping: true).format(1234567.8) == "1,234,568")
-  #expect(NumberFormat.number(decimals: 2, grouping: true).format(-1234.5) == "-1,234.50")
-  #expect(NumberFormat.number(decimals: 2, grouping: false).format(2.675) == "2.68")
-  #expect(NumberFormat.currency(decimals: 0).format(-1500) == "-¥1,500")
-  #expect(NumberFormat.currency(decimals: 0).format(-0.2) == "¥0")
-  #expect(NumberFormat.percent(decimals: 1).format(0.125) == "12.5%")
-  #expect(NumberFormat.number(decimals: 0, grouping: false).format(-0.4) == "0")
-  #expect(NumberFormat.general.withDecimals(2) == .number(decimals: 2, grouping: false))
-  #expect(NumberFormat.percent(decimals: 1).withDecimals(-1) == .percent(decimals: 0))
-}
-
-@Test func colorsParseHex() {
-  #expect(CellColor(hex: "#FF8000") == CellColor(red: 255, green: 128, blue: 0))
-  #expect(CellColor(hex: "FF1E90FF")?.description == "1E90FF")
-  #expect(CellColor(hex: "red") == nil)
-}
-
-@Test func stylesSurviveJSONAndDefaultsDisappear() throws {
-  var style = CellStyle()
-  style.bold = true
-  style.fillColor = CellColor(hex: "FFF2CC")
-  style.alignment = .center
-  style.numberFormat = .currency(decimals: 0)
-  style.borders = CellBorders(top: BorderLine(style: .double, color: CellColor(hex: "C00000")), bottom: .thin)
-  var sheet = Sheet(name: "S")
-  sheet[style: CellAddress("B2")!] = style
-  sheet[style: CellAddress("C3")!] = CellStyle()
-  #expect(sheet.styles.count == 1)
-  let decoded = try JSONDecoder().decode(Sheet.self, from: JSONEncoder().encode(sheet))
-  #expect(decoded == sheet)
-  // 既定の値は JSON に書かない
-  let json = String(decoding: try JSONEncoder().encode(CellStyle()), as: UTF8.self)
-  #expect(json == "{}")
-}
-
-@Test func stylesMoveWithRowsAndColumns() {
-  var sheet = Sheet(name: "S")
-  sheet[CellAddress("A2")!] = "x"
-  sheet[style: CellAddress("A2")!] = bold()
-  var book = Workbook(sheets: [sheet])
-  book.insertRows(at: 0, count: 2, inSheet: 0)
-  #expect(book.sheets[0][style: CellAddress("A4")!].bold)
-  #expect(!book.sheets[0][style: CellAddress("A2")!].bold)
-  book.deleteRows(3...3, inSheet: 0)
-  #expect(book.sheets[0].styles.isEmpty)
-}
-
-@Test func fillCopiesStyles() {
-  var sheet = Sheet(name: "S")
-  sheet[CellAddress("A1")!] = "1"
-  sheet[style: CellAddress("A1")!] = bold()
-  sheet.fill(from: CellRange(CellAddress("A1")!), direction: .down, count: 2, incrementsSingleNumbers: true)
-  #expect(sheet[CellAddress("A3")!] == "3")
-  #expect(sheet[style: CellAddress("A3")!].bold)
-}
-
-@Test func sortingMovesWholeRows() {
-  var sheet = Sheet(name: "S")
-  let rows = [["みかん", "300"], ["りんご", "100"], ["", "50"], ["バナナ", "200"]]
-  for (r, row) in rows.enumerated() {
-    for (c, input) in row.enumerated() { sheet[CellAddress(row: r, column: c)] = input }
-    sheet[CellAddress(row: r, column: 2)] = "=B\(r + 1)*2"
+@Suite("セルの書式")
+struct CellStyleTests {
+  /// 果物と値段の表。C 列は B 列を 2 倍する数式で、A2 だけ太字
+  private func fruits() -> Workbook {
+    var sheet = Sheet(cells: [
+      "A1": "みかん", "B1": "300", "C1": "=B1*2",
+      "A2": "りんご", "B2": "100", "C2": "=B2*2",
+      "A3": "", "B3": "50", "C3": "=B3*2",
+      "A4": "バナナ", "B4": "200", "C4": "=B4*2",
+    ])
+    sheet[style: "A2"] = style { $0.bold = true }
+    return Workbook(sheets: [sheet])
   }
-  sheet[style: CellAddress("A2")!] = bold()
-  var book = Workbook(sheets: [sheet])
-  let range = CellRange(CellAddress("A1")!, CellAddress("C4")!)
-  book.sortRows(range, by: 1, ascending: true, inSheet: 0)
-  let sorted = book.sheets[0]
-  #expect((0..<4).map { sorted[CellAddress(row: $0, column: 1)] } == ["50", "100", "200", "300"])
-  #expect(sorted[CellAddress("A2")!] == "りんご")
-  #expect(sorted[style: CellAddress("A2")!].bold)
-  // 数式は動いた先の行を指す
-  #expect(sorted[CellAddress("C1")!] == "=B1*2")
 
-  // 空のセルは降順でも最後
-  book.sortRows(range, by: 0, ascending: false, inSheet: 0)
-  #expect((0..<4).map { book.sheets[0][CellAddress(row: $0, column: 0)] } == ["りんご", "みかん", "バナナ", ""])
-}
+  @Test("表示形式に合わせて数を文字列にする", arguments: [
+    // 標準は入力どおりに見せるので文字列を作らない
+    (NumberFormat.general, 1234.5, nil),
+    // 数値は四捨五入し、3 桁ごとのカンマは選べる
+    (.number(decimals: 0, grouping: true), 1234567.8, "1,234,568"),
+    (.number(decimals: 2, grouping: true), -1234.5, "-1,234.50"),
+    (.number(decimals: 2, grouping: false), 2.675, "2.68"),
+    (.currency(decimals: 0), -1500, "-¥1,500"),
+    (.percent(decimals: 1), 0.125, "12.5%"),
+    // 0 に丸まった負の数には - を付けない
+    (.number(decimals: 0, grouping: false), -0.4, "0"),
+    (.currency(decimals: 0), -0.2, "¥0"),
+  ] as [(NumberFormat, Double, String?)])
+  func numberFormats(format: NumberFormat, number: Double, expected: String?) {
+    // Given / When
+    let text = format.format(number)
 
-@Test func rowHeightsMoveWithRowsAndSurviveJSON() throws {
-  var sheet = Sheet(name: "S")
-  sheet.rowHeights = [2: 40]
-  var wrapped = CellStyle()
-  wrapped.wraps = true
-  wrapped.verticalAlignment = .top
-  sheet[style: CellAddress("A3")!] = wrapped
-  sheet[CellAddress("A3")!] = "1 行目\n2 行目"
-  var book = Workbook(sheets: [sheet])
-  book.insertRows(at: 0, count: 1, inSheet: 0)
-  #expect(book.sheets[0].rowHeights == [3: 40])
-  book.deleteRows(3...3, inSheet: 0)
-  #expect(book.sheets[0].rowHeights.isEmpty)
-  // セルだけをずらすときは、行の高さは動かない
-  book.sheets[0].rowHeights = [5: 30]
-  book.insertCells(CellRange(CellAddress("A1")!), shift: .vertical, inSheet: 0)
-  #expect(book.sheets[0].rowHeights == [5: 30])
+    // Then
+    #expect(text == expected)
+  }
 
-  let decoded = try JSONDecoder().decode(Sheet.self, from: JSONEncoder().encode(sheet))
-  #expect(decoded == sheet)
-  #expect(String(decoding: try JSONEncoder().encode(sheet), as: UTF8.self).contains(#""rowHeights":{"3":40}"#))
-}
+  @Test("小数の桁を変えると、標準は数値になり、桁は 0 より減らない")
+  func numberFormatDecimals() {
+    // Given / When
+    let fromGeneral = NumberFormat.general.withDecimals(2)
+    let belowZero = NumberFormat.percent(decimals: 1).withDecimals(-1)
 
-/// 形式 4 までの金庫の罫線（細い実線の辺を数で持っていた）も読める
-@Test func legacyBordersBecomeThinLines() throws {
-  let style = try JSONDecoder().decode(CellStyle.self, from: Data(#"{"borders":5}"#.utf8))
-  #expect(style.borders == CellBorders(top: .thin, bottom: .thin))
-  var lines = CellBorders()
-  lines[.left] = BorderLine(style: .dashDot, color: CellColor(hex: "0070C0"))
-  #expect(try JSONDecoder().decode(CellBorders.self, from: JSONEncoder().encode(lines)) == lines)
+    // Then
+    #expect(fromGeneral == .number(decimals: 2, grouping: false))
+    #expect(belowZero == .percent(decimals: 0))
+  }
+
+  @Test("色は 16 進で読み、先頭の # や透明度は無視し、読めないものは nil")
+  func colorsParseHex() {
+    // Given / When
+    let withHash = CellColor(hex: "#FF8000")
+    let withAlpha = CellColor(hex: "FF1E90FF")
+    let name = CellColor(hex: "red")
+
+    // Then
+    #expect(withHash == CellColor(red: 255, green: 128, blue: 0))
+    #expect(withAlpha?.description == "1E90FF")
+    #expect(name == nil)
+  }
+
+  @Test("書式は JSON を経ても変わらず、既定の書式は持たない")
+  func stylesSurviveJSON() throws {
+    // Given: いろいろな書式を付けた B2 と、既定の書式を入れた C3
+    var sheet = Sheet(name: "S")
+    sheet[style: "B2"] = style {
+      $0.bold = true
+      $0.fillColor = color("FFF2CC")
+      $0.alignment = .center
+      $0.numberFormat = .currency(decimals: 0)
+      $0.borders = CellBorders(top: BorderLine(style: .double, color: color("C00000")), bottom: .thin)
+    }
+    sheet[style: "C3"] = CellStyle()
+
+    // When
+    let decoded = try JSONDecoder().decode(Sheet.self, from: JSONEncoder().encode(sheet))
+
+    // Then
+    #expect(sheet.styles.count == 1)
+    #expect(decoded == sheet)
+  }
+
+  @Test("既定の値は JSON に書かない")
+  func defaultsDisappearFromJSON() throws {
+    // Given / When
+    let json = String(decoding: try JSONEncoder().encode(CellStyle()), as: UTF8.self)
+
+    // Then
+    #expect(json == "{}")
+  }
+
+  @Test("行を挿入すると書式もずれる")
+  func stylesMoveWithInsertedRows() {
+    // Given: A2 が太字
+    var sheet = Sheet(cells: ["A2": "x"])
+    sheet[style: "A2"] = style { $0.bold = true }
+    var book = Workbook(sheets: [sheet])
+
+    // When: 先頭に 2 行挿入する
+    book.insertRows(at: 0, count: 2, inSheet: 0)
+
+    // Then
+    #expect(book.sheets[0][style: "A4"].bold)
+    #expect(!book.sheets[0][style: "A2"].bold)
+  }
+
+  @Test("行を削除すると、その行の書式も消える")
+  func stylesDisappearWithDeletedRows() {
+    // Given: A4 が太字
+    var sheet = Sheet(cells: ["A4": "x"])
+    sheet[style: "A4"] = style { $0.bold = true }
+    var book = Workbook(sheets: [sheet])
+
+    // When: 4 行目を削除する
+    book.deleteRows(3...3, inSheet: 0)
+
+    // Then
+    #expect(book.sheets[0].styles.isEmpty)
+  }
+
+  @Test("つまみで広げると書式も複製する")
+  func fillCopiesStyles() {
+    // Given: 太字の 1
+    var sheet = Sheet(cells: ["A1": "1"])
+    sheet[style: "A1"] = style { $0.bold = true }
+
+    // When: option を押して下へ 2 つ広げる
+    sheet.fill(from: range("A1"), direction: .down, count: 2, incrementsSingleNumbers: true)
+
+    // Then
+    #expect(sheet["A3"] == "3")
+    #expect(sheet[style: "A3"].bold)
+  }
+
+  @Test("並べ替えは書式と数式ごと行を動かし、数式は動いた先の行を指す")
+  func sortingMovesWholeRows() {
+    // Given
+    var book = fruits()
+
+    // When: B 列の昇順に並べ替える
+    book.sortRows(range("A1:C4"), by: 1, ascending: true, inSheet: 0)
+
+    // Then
+    let sheet = book.sheets[0]
+    #expect((1...4).map { sheet["B\($0)"] } == ["50", "100", "200", "300"])
+    #expect(sheet["A2"] == "りんご")
+    #expect(sheet[style: "A2"].bold)
+    #expect(sheet["C1"] == "=B1*2")
+  }
+
+  @Test("空のセルは降順でも最後に並ぶ")
+  func sortingPutsEmptyCellsLast() {
+    // Given: A3 が空
+    var book = fruits()
+
+    // When: A 列の降順に並べ替える
+    book.sortRows(range("A1:C4"), by: 0, ascending: false, inSheet: 0)
+
+    // Then
+    let sheet = book.sheets[0]
+    #expect((1...4).map { sheet["A\($0)"] } == ["りんご", "みかん", "バナナ", ""])
+  }
+
+  @Test("行の高さは行の挿入についていく")
+  func rowHeightsMoveWithInsertedRows() {
+    // Given: 3 行目の高さが 40
+    var sheet = Sheet(name: "S")
+    sheet.rowHeights = [2: 40]
+    var book = Workbook(sheets: [sheet])
+
+    // When: 先頭に 1 行挿入する
+    book.insertRows(at: 0, count: 1, inSheet: 0)
+
+    // Then
+    #expect(book.sheets[0].rowHeights == [3: 40])
+  }
+
+  @Test("行を削除すると、その行の高さも消える")
+  func rowHeightsDisappearWithDeletedRows() {
+    // Given: 4 行目の高さが 40
+    var sheet = Sheet(name: "S")
+    sheet.rowHeights = [3: 40]
+    var book = Workbook(sheets: [sheet])
+
+    // When: 4 行目を削除する
+    book.deleteRows(3...3, inSheet: 0)
+
+    // Then
+    #expect(book.sheets[0].rowHeights.isEmpty)
+  }
+
+  @Test("セルだけをずらすときは、行の高さは動かない")
+  func rowHeightsStayWhenShiftingCells() {
+    // Given: 6 行目の高さが 30
+    var sheet = Sheet(name: "S")
+    sheet.rowHeights = [5: 30]
+    var book = Workbook(sheets: [sheet])
+
+    // When: A1 にセルを挿入して下へずらす
+    book.insertCells(range("A1"), shift: .vertical, inSheet: 0)
+
+    // Then
+    #expect(book.sheets[0].rowHeights == [5: 30])
+  }
+
+  @Test("行の高さと折り返しは JSON を経ても変わらず、高さは 1 から数えた行番号で書く")
+  func rowHeightsSurviveJSON() throws {
+    // Given: 3 行目が高さ 40 で、A3 は折り返して上に寄せた 2 行の文字列
+    var sheet = Sheet(cells: ["A3": "1 行目\n2 行目"])
+    sheet.rowHeights = [2: 40]
+    sheet[style: "A3"] = style {
+      $0.wraps = true
+      $0.verticalAlignment = .top
+    }
+
+    // When
+    let data = try JSONEncoder().encode(sheet)
+    let decoded = try JSONDecoder().decode(Sheet.self, from: data)
+
+    // Then
+    #expect(decoded == sheet)
+    #expect(String(decoding: data, as: UTF8.self).contains(#""rowHeights":{"3":40}"#))
+  }
+
+  @Test("形式 4 までの罫線（細い実線の辺を数で持っていた）も読める")
+  func legacyBordersBecomeThinLines() throws {
+    // Given / When: 上と下の辺を表す 5
+    let style = try JSONDecoder().decode(CellStyle.self, from: Data(#"{"borders":5}"#.utf8))
+
+    // Then
+    #expect(style.borders == CellBorders(top: .thin, bottom: .thin))
+  }
+
+  @Test("罫線の種類と色は JSON を経ても変わらない")
+  func bordersSurviveJSON() throws {
+    // Given: 左だけに青い一点鎖線
+    var lines = CellBorders()
+    lines[.left] = BorderLine(style: .dashDot, color: color("0070C0"))
+
+    // When
+    let decoded = try JSONDecoder().decode(CellBorders.self, from: JSONEncoder().encode(lines))
+
+    // Then
+    #expect(decoded == lines)
+  }
 }
