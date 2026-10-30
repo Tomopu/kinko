@@ -28,7 +28,7 @@ swift run Kinko --snapshot docs/figure/ui   # 開発用：主な画面を PNG �
 | `Sources/Kinko/Vault/` | 金庫を開いている間の状態（`VaultSession`）、目のボタンつきのパスワード欄（`PasswordField`）、パスワードの変更（`ChangePasswordView`） |
 | `Sources/Kinko/Workspace/` | サイドバーつきの編集画面（`WorkspaceView`）、ドラッグで運ぶ項目（`ItemReference`） |
 | `Sources/Kinko/TextEditors/` | スペルチェックなどを切ったテキストエディタ（`PlainTextEditor`）、ライブプレビューの Markdown エディタ（`MarkdownEditor`、見た目は `MarkdownStyle`、背景の描画は `MarkdownLayoutManager`） |
-| `Sources/Kinko/Sheet/` | 表のエディタ。状態と操作（`SheetEditorModel` と `+Format` `+Editing` `+Clipboard`）、SwiftUI の外枠（`SheetEditor` `FormatBar` `BorderPanel`）、AppKit のグリッド（`SheetGridView`、座標は `SheetGeometry`、セルは `SheetCellsView` と `+Drawing` `+Editing`、見出しは `SheetHeaderViews`、右クリックは `SheetMenus`） |
+| `Sources/Kinko/Sheet/` | 表のエディタ。状態と操作（`SheetEditorModel` と `+Format` `+Editing` `+Clipboard`）、SwiftUI の外枠（`SheetEditor` `FormatBar` `BorderPanel`）、AppKit のグリッド（`SheetGridView`、座標は `SheetGeometry`、セルは `SheetCellsView` と `+Drawing`、見出しは `SheetHeaderViews`、右クリックは `SheetMenus`） |
 | `Sources/Kinko/Debug/` | 開発用の撮影と動作確認（`swift run Kinko --snapshot <出力先>`。DEBUG ビルドだけ） |
 | `Tests/KinkoCoreTests/` | KinkoCore のテスト。`Sources/KinkoCore/` と同じフォルダ分け |
 | `Resources/AppIcon.icon` | アプリアイコン（Icon Composer 形式。Xcode 付属の Icon Composer で開いて編集する） |
