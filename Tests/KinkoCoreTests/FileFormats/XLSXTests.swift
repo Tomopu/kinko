@@ -62,12 +62,21 @@ MS54bWxQSwECFAMUAAAACABxZF5dtioJa9QAAABRAQAAGAAAAAAAAAAAAAAAgAEqDAAAeGwvd29ya3No
 UEsFBgAAAAAIAAgACAIAADQNAAAAAA==
 """
 
-@Test func readsExcelLikeWorkbook() throws {
-  let data = try #require(Data(base64Encoded: excelSample, options: .ignoreUnknownCharacters))
-  let workbook = try XLSX.read(data)
-  let master = "=A2*2"
-  let expected = Workbook(sheets: [
-    Sheet(
+@Suite("XLSX の読み書き")
+struct XLSXTests {
+  // MARK: - 読み込み
+
+  @Test("Excel が書いたブックの値・数式・日付・列幅・表示形式を読む")
+  func readsExcelWorkbook() throws {
+    // Given
+    let data = try #require(Data(base64Encoded: excelSample, options: .ignoreUnknownCharacters))
+
+    // When
+    let workbook = try XLSX.read(data)
+
+    // Then
+    let master = "=A2*2"
+    var sales = Sheet(
       name: "売上",
       cells: [
         "A1": "名前", "B1": "太字 と普通", "C1": "東京", "D1": "山田太郎",
@@ -78,205 +87,400 @@ UEsFBgAAAAAIAAgACAIAADQNAAAAAA==
         "A4": "インライン", "B4": Formula.shifted(master, rowOffset: 2, columnOffset: 0), "C4": "'123", "D4": "12:00",
         "E4": "2026/10/30 18:00",
         "A5": "1234.5", "B5": #"=CONCAT(A1,"_xlfn.x")"#, "C5": "改行\r\nあり & <記号>", "D5": "=SUM(A2:A3*2)", "E5": "7",
-      ].reduce(into: [:]) { $0[CellAddress($1.key)!] = $1.value },
-      // 12.625 文字 → 93 ポイント、20 文字 → 145 ポイント。I 列から XFD 列までの指定は使わない
-      columnWidths: [0: 93, 2: 145, 3: 145],
-      // "0.00" と "#,##0.00_);[Red]\(#,##0.00\)" は日付ではなく、数の表示形式
-      styles: [
-        CellAddress("A3")!: style { $0.numberFormat = .number(decimals: 2, grouping: false) },
-        CellAddress("A5")!: style { $0.numberFormat = .number(decimals: 2, grouping: true) },
-      ]),
-    Sheet(name: "Sheet2", cells: [CellAddress("A1")!: "名前", CellAddress("B3")!: "3.14159"]),
+      ])
+    // 12.625 文字 → 93 ポイント、20 文字 → 145 ポイント。I 列から XFD 列までの指定は使わない
+    sales.columnWidths = [0: 93, 2: 145, 3: 145]
+    // "0.00" と "#,##0.00_);[Red]\(#,##0.00\)" は日付ではなく、数の表示形式
+    sales[style: "A3"] = style { $0.numberFormat = .number(decimals: 2, grouping: false) }
+    sales[style: "A5"] = style { $0.numberFormat = .number(decimals: 2, grouping: true) }
+    #expect(workbook == Workbook(sheets: [sales, Sheet(name: "Sheet2", cells: ["A1": "名前", "B3": "3.14159"])]))
+  }
+
+  @Test("Excel は文字列の中の改行をそのままの LF で書くので、そのまま読む")
+  func rawLineFeeds() throws {
+    // Given
+    let data = try package(sheetXML: "<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>上\n下</t></is></c></row>")
+
+    // When
+    let sheet = try XLSX.read(data).sheets.first
+
+    // Then
+    #expect(sheet?["A1"] == "上\n下")
+  }
+
+  @Test("xlsx でないファイルは、種類に合ったエラーで断る")
+  func rejectsOtherFiles() throws {
+    // Given: 古い形式の Excel（OLE）、その中に EncryptedPackage のあるパスワード付きの Excel、CSV、ブックのない ZIP
+    let ole = Data([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1] + [UInt8](repeating: 0, count: 504))
+    let encrypted = ole + Data("EncryptedPackage".utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] })
+    let csv = Data("a,b,c\n".utf8)
+    let zip = try ZipWriter.archive([("readme.txt", Data("hi".utf8))])
+
+    // When / Then
+    #expect(throws: SpreadsheetFileError.legacyExcel) { try XLSX.read(ole) }
+    #expect(throws: SpreadsheetFileError.encryptedExcel) { try XLSX.read(encrypted) }
+    #expect(throws: SpreadsheetFileError.notXLSX) { try XLSX.read(csv) }
+    #expect(throws: SpreadsheetFileError.notXLSX) { try XLSX.read(zip) }
+  }
+
+  @Test("シートの中身がおかしければ、その部品の名前を添えて断る", arguments: [
+    // 共有文字列の番号が範囲外
+    #"<row r="1"><c r="A1" t="s"><v>5</v></c></row>"#,
+    // Excel の範囲外の位置
+    #"<row r="1"><c r="XFE1"><v>1</v></c></row>"#,
+    // 閉じていないタグ
+    #"<row r="1"><c r="A1"><v>1</v></row>"#,
   ])
-  #expect(workbook == expected)
-}
+  func rejectsInvalidSheet(sheetXML: String) throws {
+    // Given
+    let data = try package(sheetXML: sheetXML)
 
-@Test func rejectsNonXLSXFiles() throws {
-  let ole = Data([0xD0, 0xCF, 0x11, 0xE0, 0xA1, 0xB1, 0x1A, 0xE1] + [UInt8](repeating: 0, count: 504))
-  #expect(throws: SpreadsheetFileError.legacyExcel) { try XLSX.read(ole) }
-  let encrypted = ole + Data("EncryptedPackage".utf16.flatMap { [UInt8($0 & 0xFF), UInt8($0 >> 8)] })
-  #expect(throws: SpreadsheetFileError.encryptedExcel) { try XLSX.read(encrypted) }
-  #expect(throws: SpreadsheetFileError.notXLSX) { try XLSX.read(Data("a,b,c\n".utf8)) }
-  #expect(throws: SpreadsheetFileError.notXLSX) { try XLSX.read(ZipWriter.archive([("readme.txt", Data("hi".utf8))])) }
-  // 共有文字列の番号が範囲外
-  #expect(throws: SpreadsheetFileError.invalidPart("xl/worksheets/sheet1.xml")) {
-    try XLSX.read(package(sheetXML: #"<row r="1"><c r="A1" t="s"><v>5</v></c></row>"#))
-  }
-  // Excel の範囲外の位置
-  #expect(throws: SpreadsheetFileError.invalidPart("xl/worksheets/sheet1.xml")) {
-    try XLSX.read(package(sheetXML: #"<row r="1"><c r="XFE1"><v>1</v></c></row>"#))
-  }
-  #expect(throws: SpreadsheetFileError.invalidPart("xl/worksheets/sheet1.xml")) {
-    try XLSX.read(package(sheetXML: #"<row r="1"><c r="A1"><v>1</v></row>"#))
-  }
-}
-
-@Test func rejectsDTD() throws {
-  // Billion Laughs: 展開すると 10 億個の "lol" になる
-  var dtd = #"<!DOCTYPE worksheet [<!ENTITY lol "lol">"#
-  dtd += #"<!ENTITY lol1 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">"#
-  for level in 2...9 { dtd += "<!ENTITY lol\(level) \"" + String(repeating: "&lol\(level - 1);", count: 10) + "\">" }
-  dtd += "]>"
-  let ns = #"xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main""#
-  let bomb = #"<?xml version="1.0"?>\#(dtd)<worksheet \#(ns)><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>&lol9;</t></is></c></row></sheetData></worksheet>"#
-  #expect(throws: SpreadsheetFileError.invalidPart("xl/worksheets/sheet1.xml")) {
-    try XMLScanner.scan(Data(bomb.utf8), part: "xl/worksheets/sheet1.xml")
-  }
-  // XXE: 外部のファイルを読ませようとする
-  let xxe = #"<?xml version="1.0"?><!DOCTYPE w [<!ENTITY x SYSTEM "file:///etc/passwd">]><w>&x;</w>"#
-  #expect(throws: SpreadsheetFileError.invalidPart("p")) { try XMLScanner.scan(Data(xxe.utf8), part: "p") }
-  // UTF-16 で書かれていて DOCTYPE の文字列検査をすり抜けても、実体の定義で止まる
-  let utf16 = Data([0xFF, 0xFE]) + #"<?xml version="1.0" encoding="UTF-16"?>\#(dtd)<w>&lol9;</w>"#.data(using: .utf16LittleEndian)!
-  #expect(throws: SpreadsheetFileError.self) { try XMLScanner.scan(utf16, part: "p") }
-}
-
-@Test func writeThenReadRoundTrip() throws {
-  var first = Sheet(name: "表1", columnWidths: [0: 120, 2: 64])
-  let inputs: [String: String] = [
-    "A1": "'123", "A2": "'=1+1", "A3": "日本語", "A4": "=A5*2", "A5": "5",
-    "B1": #"=CONCAT(A3,"x")"#, "B2": #"=textjoin(",",TRUE,A1:A3)"#, "B3": "=1/0", "B4": "=A5>1", "B5": "TRUE",
-    "C1": "#N/A", "C2": "  前後に空白 ", "C3": "1行目\n2行目\r\n3行目", "C4": "_x000D_ はそのまま", "C5": #"a<b&c"d'"#,
-    "D1": #"=" IFS(" & MYCONCAT(1)"#, "D2": "1.5", "D3": "1e+20", "D4": "=NOW()", "D5": "\t",
-  ]
-  for (key, value) in inputs { first[CellAddress(key)!] = value }
-  let workbook = Workbook(sheets: [first, Sheet(name: "Sheet/2*"), Sheet(name: "sheet_2_", cells: [CellAddress(row: 9, column: 27): "x"])])
-  let cached: [String: CellValue] = [
-    "A4": .number(10), "B1": .text("日本語x"), "B2": .text("123,=1+1,日本語"), "B3": .error(.div0), "B4": .bool(true),
-    "D1": .text(" IFS(1"), "D4": .empty,
-  ]
-  let data = try XLSX.write(workbook) { sheet, address in
-    sheet == 0 ? cached[address.description] ?? .empty : .empty
+    // When / Then
+    #expect(throws: SpreadsheetFileError.invalidPart("xl/worksheets/sheet1.xml")) { try XLSX.read(data) }
   }
 
-  let read = try XLSX.read(data)
-  #expect(read.sheets.map(\.name) == ["表1", "Sheet_2_", "sheet_2_ (2)"])
-  #expect(read.sheets[0].cells == first.cells)
-  #expect(read.sheets[0].columnWidths == first.columnWidths)
-  #expect(read.sheets[1].cells.isEmpty)
-  #expect(read.sheets[2].cells == [CellAddress(row: 9, column: 27): "x"])
+  @Test("セルが多すぎるシートは断る")
+  func rejectsTooManyCells() throws {
+    // Given: 1000 個のセルの行を、上限を超えるまで並べる
+    let row = "<row>" + String(repeating: "<c><v>1</v></c>", count: 1000) + "</row>"
+    let data = try package(sheetXML: String(repeating: row, count: SpreadsheetLimits.maxCells / 1000 + 1))
 
-  // ファイルの中身: キャッシュ値の型と _xlfn. の付け方
-  var zip = try ZipArchive(data)
-  let xml = String(decoding: try #require(try zip.read("xl/worksheets/sheet1.xml")), as: UTF8.self)
-  #expect(xml.contains(#"<c r="A4"><f>A5*2</f><v>10</v></c>"#))
-  #expect(xml.contains(#"<c r="B1" t="str"><f>_xlfn.CONCAT(A3,&quot;x&quot;)</f><v>日本語x</v></c>"#))
-  #expect(xml.contains(#"<f>_xlfn.textjoin("#))
-  #expect(xml.contains(#"<c r="B3" t="e"><f>1/0</f><v>#DIV/0!</v></c>"#))
-  #expect(xml.contains(#"<c r="B4" t="b"><f>A5&gt;1</f><v>1</v></c>"#))
-  #expect(xml.contains(#"<c r="D1" t="str"><f>&quot; IFS(&quot; &amp; MYCONCAT(1)</f>"#))
-  #expect(xml.contains(#"<c r="D4"><f>NOW()</f></c>"#))
-  #expect(xml.contains(#"<c r="A1" t="inlineStr"><is><t xml:space="preserve">123</t></is></c>"#))
-  #expect(xml.contains(#"<c r="C1" t="e"><v>#N/A</v></c>"#))
-  #expect(xml.contains(#"<c r="B5" t="b"><v>1</v></c>"#))
-  let workbookXML = String(decoding: try #require(try zip.read("xl/workbook.xml")), as: UTF8.self)
-  #expect(workbookXML.contains(#"<calcPr fullCalcOnLoad="1"/>"#))
-  #expect(!zip.entries.keys.contains { $0.hasPrefix("docProps") })
-}
-
-@Test func functionPrefixes() {
-  #expect(XLSX.addFunctionPrefixes(#"IFS(A1>0,"CONCAT(",1)+XLOOKUP(1,A:A,B:B)+'MAXIFS('!A1+SUM(1)"#)
-    == #"_xlfn.IFS(A1>0,"CONCAT(",1)+_xlfn.XLOOKUP(1,A:A,B:B)+'MAXIFS('!A1+SUM(1)"#)
-  #expect(XLSX.addFunctionPrefixes("SWITCH + SWITCH(1) + _xlfn.SWITCH(2) + A.IFS(3)") == "SWITCH + _xlfn.SWITCH(1) + _xlfn.SWITCH(2) + A.IFS(3)")
-  #expect(XLSX.removeFunctionPrefixes(#"_xlfn._xlws.SORT(A1:A3)&"_xlfn.""#) == #"SORT(A1:A3)&"_xlfn.""#)
-}
-
-@Test func dateFormats() {
-  for code in ["yyyy/m/d", "m月d日", "[$-411]ggge\"年\"m\"月\"d\"日\"", "mmm-yy", "yyyy\"年\"m\"月\"d\"日\";@", "[$-F800]dddd, mmmm dd, yyyy"] {
-    #expect(XLSX.dateStyle(formatCode: code) == .date, "\(code)")
+    // When / Then
+    #expect(throws: SpreadsheetFileError.tooManyCells(limit: SpreadsheetLimits.maxCells)) { try XLSX.read(data) }
   }
-  for code in ["h:mm", "mm:ss", "[h]:mm:ss", "h:mm AM/PM", "h\"時\"mm\"分\"", "[mm]"] {
-    #expect(XLSX.dateStyle(formatCode: code) == .time, "\(code)")
+
+  // MARK: - DTD
+
+  /// Billion Laughs: 展開すると 10 億個の "lol" になる実体の定義
+  private var billionLaughs: String {
+    var dtd = #"<!DOCTYPE worksheet [<!ENTITY lol "lol">"#
+    dtd += #"<!ENTITY lol1 "&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;&lol;">"#
+    for level in 2...9 { dtd += "<!ENTITY lol\(level) \"" + String(repeating: "&lol\(level - 1);", count: 10) + "\">" }
+    return dtd + "]>"
   }
-  for code in ["0.00", "#,##0", "General", "0.00E+00", "[Red]0.00", "\"day\"0", "0\\d", "#,##0_);[Red]\\(#,##0\\)", "@", "0%"] {
-    #expect(XLSX.dateStyle(formatCode: code) == nil, "\(code)")
+
+  @Test("実体を定義する DTD（Billion Laughs）は展開せずに断る")
+  func rejectsEntityExpansion() {
+    // Given
+    let ns = #"xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main""#
+    let bomb = #"<?xml version="1.0"?>\#(billionLaughs)<worksheet \#(ns)><sheetData><row r="1"><c r="A1" t="inlineStr"><is><t>&lol9;</t></is></c></row></sheetData></worksheet>"#
+
+    // When / Then
+    #expect(throws: SpreadsheetFileError.invalidPart("xl/worksheets/sheet1.xml")) {
+      try XMLScanner.scan(Data(bomb.utf8), part: "xl/worksheets/sheet1.xml")
+    }
   }
-  #expect(XLSX.builtInDateStyle(14) == .date)
-  #expect(XLSX.builtInDateStyle(32) == .time)
-  #expect(XLSX.builtInDateStyle(2) == nil)
 
-  #expect(XLSX.dateText(serial: 45658, style: .date, date1904: false) == "2025/01/01")
-  #expect(XLSX.dateText(serial: 44196, style: .date, date1904: true) == "2025/01/01")
-  #expect(XLSX.dateText(serial: 0.75, style: .time, date1904: false) == "18:00")
-  #expect(XLSX.dateText(serial: 0.5 + 1.0 / 86_400, style: .time, date1904: false) == "12:00:01")
-  #expect(XLSX.dateText(serial: 45658.25, style: .date, date1904: false) == "2025/01/01 06:00")
-  #expect(XLSX.dateText(serial: -1, style: .date, date1904: false) == nil)
-  // 日付の文字列は数や数式と取り違えられない
-  #expect(CellInput.literal("2025/01/01") == .text("2025/01/01"))
-  #expect(CellInput.literal("12:00") == .text("12:00"))
-}
+  @Test("外部のファイルを読ませる実体（XXE）は断る")
+  func rejectsExternalEntity() {
+    // Given
+    let xxe = #"<?xml version="1.0"?><!DOCTYPE w [<!ENTITY x SYSTEM "file:///etc/passwd">]><w>&x;</w>"#
 
-@Test func sheetNamesFollowExcelRules() {
-  #expect(
-    XLSX.sheetNames(["a/b", "'引用'", "", "A/B", String(repeating: "長", count: 40), String(repeating: "長", count: 40), "History"])
-      == ["a_b", "引用", "Sheet3", "A_B (2)", String(repeating: "長", count: 31), String(repeating: "長", count: 27) + " (2)", "Sheet7"])
-}
-
-@Test func escapesTextForXML() {
-  #expect(XLSX.escape("a\u{01}b\u{0B}c") == "abc")
-  #expect(XLSX.unescapeText("a_x000D__x000a_b_x005F_x0041_") == "a\r\nb_x0041_")
-  #expect(XLSX.unescapeText("_xD83D__xDE00_") == "😀")
-  #expect(XLSX.unescapeText(XLSX.escapeText("_x0041_").replacingOccurrences(of: "&amp;", with: "&")) == "_x0041_")
-}
-
-@Test func rejectsTooManyCells() throws {
-  let row = "<row>" + String(repeating: "<c><v>1</v></c>", count: 1000) + "</row>"
-  let sheet = String(repeating: row, count: SpreadsheetLimits.maxCells / 1000 + 1)
-  #expect(throws: SpreadsheetFileError.tooManyCells(limit: SpreadsheetLimits.maxCells)) {
-    try XLSX.read(package(sheetXML: sheet))
+    // When / Then
+    #expect(throws: SpreadsheetFileError.invalidPart("p")) { try XMLScanner.scan(Data(xxe.utf8), part: "p") }
   }
-}
 
-@Test func readsRawLineFeedsInStrings() throws {
-  // Excel は共有文字列・インライン文字列の改行を、そのままの LF で書く
-  let data = try package(sheetXML: "<row r=\"1\"><c r=\"A1\" t=\"inlineStr\"><is><t>上\n下</t></is></c></row>")
-  #expect(try XLSX.read(data).sheets.first?[CellAddress("A1")!] == "上\n下")
-}
+  @Test("UTF-16 で書かれていて DOCTYPE の文字列検査をすり抜けても、実体の定義で止まる")
+  func rejectsEntityExpansionInUTF16() {
+    // Given
+    let utf16 = Data([0xFF, 0xFE]) + #"<?xml version="1.0" encoding="UTF-16"?>\#(billionLaughs)<w>&lol9;</w>"#.data(using: .utf16LittleEndian)!
 
-/// ほかのブックを参照する式のファイルを作る（共有文字列つき）
-private func externalPackage(_ sheetXML: String) throws -> Data {
-  let ns = #"xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships""#
-  let type = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
-  let rels =
-    #"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#
-    + #"<Relationship Id="rId1" Type="\#(type)worksheet" Target="worksheets/sheet1.xml"/>"#
-    + #"<Relationship Id="rId2" Type="\#(type)sharedStrings" Target="sharedStrings.xml"/>"#
-    + #"<Relationship Id="rId3" Type="\#(type)externalLink" Target="externalLinks/externalLink1.xml"/></Relationships>"#
-  return try ZipWriter.archive([
-    ("xl/workbook.xml", Data(#"<workbook \#(ns)><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets><externalReferences><externalReference r:id="rId3"/></externalReferences></workbook>"#.utf8)),
-    ("xl/_rels/workbook.xml.rels", Data(rels.utf8)),
-    ("xl/sharedStrings.xml", Data(#"<sst \#(ns)><si><t>東京</t></si></sst>"#.utf8)),
-    ("xl/worksheets/sheet1.xml", Data(#"<worksheet \#(ns)><sheetData>\#(sheetXML)</sheetData></worksheet>"#.utf8)),
+    // When / Then
+    #expect(throws: SpreadsheetFileError.self) { try XMLScanner.scan(utf16, part: "p") }
+  }
+
+  // MARK: - ほかのブックへの参照
+
+  /// ほかのブックを参照する式のファイルを作る（共有文字列つき）
+  private func externalPackage(_ sheetXML: String) throws -> Data {
+    let ns = #"xmlns="http://schemas.openxmlformats.org/spreadsheetml/2006/main" xmlns:r="http://schemas.openxmlformats.org/officeDocument/2006/relationships""#
+    let type = "http://schemas.openxmlformats.org/officeDocument/2006/relationships/"
+    let rels =
+      #"<Relationships xmlns="http://schemas.openxmlformats.org/package/2006/relationships">"#
+      + #"<Relationship Id="rId1" Type="\#(type)worksheet" Target="worksheets/sheet1.xml"/>"#
+      + #"<Relationship Id="rId2" Type="\#(type)sharedStrings" Target="sharedStrings.xml"/>"#
+      + #"<Relationship Id="rId3" Type="\#(type)externalLink" Target="externalLinks/externalLink1.xml"/></Relationships>"#
+    return try ZipWriter.archive([
+      ("xl/workbook.xml", Data(#"<workbook \#(ns)><sheets><sheet name="S" sheetId="1" r:id="rId1"/></sheets><externalReferences><externalReference r:id="rId3"/></externalReferences></workbook>"#.utf8)),
+      ("xl/_rels/workbook.xml.rels", Data(rels.utf8)),
+      ("xl/sharedStrings.xml", Data(#"<sst \#(ns)><si><t>東京</t></si></sst>"#.utf8)),
+      ("xl/worksheets/sheet1.xml", Data(#"<worksheet \#(ns)><sheetData>\#(sheetXML)</sheetData></worksheet>"#.utf8)),
+    ])
+  }
+
+  @Test("ほかのブックを参照する数式は、キャッシュされた値として読む")
+  func externalReferencesBecomeValues() throws {
+    // Given: A 列の 1 行目から順に並べた数式
+    let rows = [
+      #"<c r="A1" t="s"><f>'[1]売上 2026'!B6</f><v>0</v></c>"#,
+      #"<c r="A2"><f>[1]Sheet1!A1*2</f><v>42</v></c>"#,
+      #"<c r="A3" t="str"><f>"[1]Sheet1!A1"&amp;"x"</f><v>[1]Sheet1!A1x</v></c>"#,
+      #"<c r="A4"><f>SUM([1]!総額)</f></c>"#,
+      #"<c r="A5" t="b"><f>'[2]My Sheet'!B2:C3=1</f><v>1</v></c>"#,
+      #"<c r="A6"><f>表1[2024]+SUM(表1[[#This Row],[2024]])</f><v>3</v></c>"#,
+      #"<c r="A7"><f t="shared" ref="A7:A8" si="0">[1]Sheet1!A1</f><v>5</v></c>"#,
+      #"<c r="A8"><f t="shared" si="0"/><v>6</v></c>"#,
+      #"<c r="A9" t="e"><f>[1]Sheet1!A1</f><v>#REF!</v></c>"#,
+      #"<c r="A10" t="str"><f>[1]Sheet1!A1</f><v>=1+1</v></c>"#,
+    ].enumerated().map { #"<row r="\#($0.offset + 1)">\#($0.element)</row>"# }.joined()
+
+    // When
+    let sheet = try #require(try XLSX.read(externalPackage(rows)).sheets.first)
+
+    // Then: 値のない A4 は空。文字列の中や表の列名の [ ] は参照ではないので数式のまま
+    #expect(
+      byA1(sheet.cells) == [
+        "A1": "東京", "A2": "42", "A3": #"="[1]Sheet1!A1"&"x""#, "A5": "TRUE",
+        "A6": "=表1[2024]+SUM(表1[[#This Row],[2024]])", "A7": "5", "A8": "6", "A9": "#REF!",
+        // キャッシュ値が "=" で始まる文字列でも、数式としては読まない
+        "A10": "'=1+1",
+      ])
+  }
+
+  @Test("ほかのブックへの参照を見分ける", arguments: [
+    // 参照あり
+    ("=[1]Sheet1!A1", true),
+    ("='[2]My Sheet'!B2:C3", true),
+    ("=SUM([1]!Name)", true),
+    ("=1+[3]売上!A1", true),
+    ("='C:\\dir\\[Book1.xlsx]Sheet1'!A1", true),
+    // 文字列の中、表の列名、引用符付きのシート名は参照ではない
+    (#"="[1]Sheet1!A1""#, false),
+    ("=表1[2024]", false),
+    ("=表1[[#This Row],[2024]]", false),
+    ("=SUM(表1[[2024]])", false),
+    ("='It''s'!A1", false),
+    ("=A1", false),
   ])
-}
+  func detectsExternalReferences(formula: String, expected: Bool) {
+    // Given / When
+    let detected = XLSX.hasExternalReference(formula)
 
-@Test func externalReferencesBecomeCachedValues() throws {
-  let rows = [
-    #"<c r="A1" t="s"><f>'[1]売上 2026'!B6</f><v>0</v></c>"#,
-    #"<c r="A2"><f>[1]Sheet1!A1*2</f><v>42</v></c>"#,
-    #"<c r="A3" t="str"><f>"[1]Sheet1!A1"&amp;"x"</f><v>[1]Sheet1!A1x</v></c>"#,
-    #"<c r="A4"><f>SUM([1]!総額)</f></c>"#,
-    #"<c r="A5" t="b"><f>'[2]My Sheet'!B2:C3=1</f><v>1</v></c>"#,
-    #"<c r="A6"><f>表1[2024]+SUM(表1[[#This Row],[2024]])</f><v>3</v></c>"#,
-    #"<c r="A7"><f t="shared" ref="A7:A8" si="0">[1]Sheet1!A1</f><v>5</v></c>"#,
-    #"<c r="A8"><f t="shared" si="0"/><v>6</v></c>"#,
-    #"<c r="A9" t="e"><f>[1]Sheet1!A1</f><v>#REF!</v></c>"#,
-    #"<c r="A10" t="str"><f>[1]Sheet1!A1</f><v>=1+1</v></c>"#,
-  ].enumerated().map { #"<row r="\#($0.offset + 1)">\#($0.element)</row>"# }.joined()
-  let sheet = try #require(try XLSX.read(externalPackage(rows)).sheets.first)
-  let expected: [String: String] = [
-    "A1": "東京", "A2": "42", "A3": #"="[1]Sheet1!A1"&"x""#, "A5": "TRUE",
-    "A6": "=表1[2024]+SUM(表1[[#This Row],[2024]])", "A7": "5", "A8": "6", "A9": "#REF!",
-    // キャッシュ値が "=" で始まる文字列でも、数式としては読まない
-    "A10": "'=1+1",
-  ]
-  #expect(sheet.cells == expected.reduce(into: [:]) { $0[CellAddress($1.key)!] = $1.value })
-}
-
-@Test func detectsExternalReferences() {
-  for formula in ["=[1]Sheet1!A1", "='[2]My Sheet'!B2:C3", "=SUM([1]!Name)", "=1+[3]売上!A1", "='C:\\dir\\[Book1.xlsx]Sheet1'!A1"] {
-    #expect(XLSX.hasExternalReference(formula), "\(formula)")
+    // Then
+    #expect(detected == expected)
   }
-  for formula in [#"="[1]Sheet1!A1""#, "=表1[2024]", "=表1[[#This Row],[2024]]", "=SUM(表1[[2024]])", "='It''s'!A1", "=A1"] {
-    #expect(!XLSX.hasExternalReference(formula), "\(formula)")
+
+  // MARK: - 書き出し
+
+  /// 読み戻しを試すシート。文字列に見える数や数式、XML で特別な文字、新しい関数を含む
+  private var roundTripSheet: Sheet {
+    var sheet = Sheet(
+      name: "表1",
+      cells: [
+        "A1": "'123", "A2": "'=1+1", "A3": "日本語", "A4": "=A5*2", "A5": "5",
+        "B1": #"=CONCAT(A3,"x")"#, "B2": #"=textjoin(",",TRUE,A1:A3)"#, "B3": "=1/0", "B4": "=A5>1", "B5": "TRUE",
+        "C1": "#N/A", "C2": "  前後に空白 ", "C3": "1行目\n2行目\r\n3行目", "C4": "_x000D_ はそのまま", "C5": #"a<b&c"d'"#,
+        "D1": #"=" IFS(" & MYCONCAT(1)"#, "D2": "1.5", "D3": "1e+20", "D4": "=NOW()", "D5": "\t",
+      ])
+    sheet.columnWidths = [0: 120, 2: 64]
+    return sheet
+  }
+
+  /// roundTripSheet と、Excel で使えない名前のシート 2 枚を書く。1 枚目の数式にはキャッシュ値を渡す
+  private func writtenRoundTrip() throws -> Data {
+    let workbook = Workbook(sheets: [roundTripSheet, Sheet(name: "Sheet/2*"), Sheet(name: "sheet_2_", cells: ["AB10": "x"])])
+    let cached: [String: CellValue] = [
+      "A4": .number(10), "B1": .text("日本語x"), "B2": .text("123,=1+1,日本語"), "B3": .error(.div0), "B4": .bool(true),
+      "D1": .text(" IFS(1"), "D4": .empty,
+    ]
+    return try XLSX.write(workbook) { sheet, address in
+      sheet == 0 ? cached[address.description] ?? .empty : .empty
+    }
+  }
+
+  @Test("書いたブックを読み戻すと入力と列幅はそのままで、シート名は Excel の決まりに直る")
+  func writeThenRead() throws {
+    // Given
+    let data = try writtenRoundTrip()
+
+    // When
+    let read = try XLSX.read(data)
+
+    // Then
+    #expect(read.sheets.map(\.name) == ["表1", "Sheet_2_", "sheet_2_ (2)"])
+    #expect(read.sheets[0].cells == roundTripSheet.cells)
+    #expect(read.sheets[0].columnWidths == roundTripSheet.columnWidths)
+    #expect(read.sheets[1].cells.isEmpty)
+    #expect(byA1(read.sheets[2].cells) == ["AB10": "x"])
+  }
+
+  @Test("セルは入力と計算結果の種類に合った形で書く", arguments: [
+    // 数式のキャッシュ値: 数は型なし、文字列は str、エラーは e、真偽値は b。値がなければ <v> を書かない
+    #"<c r="A4"><f>A5*2</f><v>10</v></c>"#,
+    #"<c r="B1" t="str"><f>_xlfn.CONCAT(A3,&quot;x&quot;)</f><v>日本語x</v></c>"#,
+    #"<c r="B3" t="e"><f>1/0</f><v>#DIV/0!</v></c>"#,
+    #"<c r="B4" t="b"><f>A5&gt;1</f><v>1</v></c>"#,
+    #"<c r="D1" t="str"><f>&quot; IFS(&quot; &amp; MYCONCAT(1)</f>"#,
+    #"<c r="D4"><f>NOW()</f></c>"#,
+    // 新しい関数には、小文字で書いても _xlfn. を付ける
+    #"<f>_xlfn.textjoin("#,
+    // 数式でない入力: 数に見える文字列、エラー、真偽値
+    #"<c r="A1" t="inlineStr"><is><t xml:space="preserve">123</t></is></c>"#,
+    #"<c r="C1" t="e"><v>#N/A</v></c>"#,
+    #"<c r="B5" t="b"><v>1</v></c>"#,
+  ])
+  func writesCells(fragment: String) throws {
+    // Given / When
+    let xml = try xmlPart("xl/worksheets/sheet1.xml", in: writtenRoundTrip())
+
+    // Then
+    #expect(xml.contains(fragment))
+  }
+
+  @Test("開いたときに再計算させ、docProps は書かない")
+  func writesWorkbookSettings() throws {
+    // Given / When
+    let data = try writtenRoundTrip()
+    let parts = try ZipArchive(data).entries.keys
+
+    // Then
+    #expect(try xmlPart("xl/workbook.xml", in: data).contains(#"<calcPr fullCalcOnLoad="1"/>"#))
+    #expect(!parts.contains { $0.hasPrefix("docProps") })
+  }
+
+  // MARK: - 部品の決まり
+
+  @Test("新しい関数の呼び出しにだけ _xlfn. を付ける", arguments: [
+    // 文字列の中とシート名は除く。昔からある関数（SUM）には付けない
+    (#"IFS(A1>0,"CONCAT(",1)+XLOOKUP(1,A:A,B:B)+'MAXIFS('!A1+SUM(1)"#, #"_xlfn.IFS(A1>0,"CONCAT(",1)+_xlfn.XLOOKUP(1,A:A,B:B)+'MAXIFS('!A1+SUM(1)"#),
+    // 呼び出しでない名前・付いているもの・名前の一部は除く
+    ("SWITCH + SWITCH(1) + _xlfn.SWITCH(2) + A.IFS(3)", "SWITCH + _xlfn.SWITCH(1) + _xlfn.SWITCH(2) + A.IFS(3)"),
+  ])
+  func addsFunctionPrefixes(formula: String, expected: String) {
+    // Given / When
+    let prefixed = XLSX.addFunctionPrefixes(formula)
+
+    // Then
+    #expect(prefixed == expected)
+  }
+
+  @Test("読むときは _xlfn. と _xlws. を外す（文字列の中は除く）")
+  func removesFunctionPrefixes() {
+    // Given / When
+    let removed = XLSX.removeFunctionPrefixes(#"_xlfn._xlws.SORT(A1:A3)&"_xlfn.""#)
+
+    // Then
+    #expect(removed == #"SORT(A1:A3)&"_xlfn.""#)
+  }
+
+  @Test("表示形式のコードから日付か時刻かを見分ける", arguments: [
+    // 日付
+    ("yyyy/m/d", XLSX.DateStyle.date),
+    ("m月d日", .date),
+    ("[$-411]ggge\"年\"m\"月\"d\"日\"", .date),
+    ("mmm-yy", .date),
+    ("yyyy\"年\"m\"月\"d\"日\";@", .date),
+    ("[$-F800]dddd, mmmm dd, yyyy", .date),
+    // 時刻
+    ("h:mm", .time),
+    ("mm:ss", .time),
+    ("[h]:mm:ss", .time),
+    ("h:mm AM/PM", .time),
+    ("h\"時\"mm\"分\"", .time),
+    ("[mm]", .time),
+    // 日付でない（引用符や \ の中の文字、色の指定は見ない）
+    ("0.00", nil),
+    ("#,##0", nil),
+    ("General", nil),
+    ("0.00E+00", nil),
+    ("[Red]0.00", nil),
+    ("\"day\"0", nil),
+    ("0\\d", nil),
+    ("#,##0_);[Red]\\(#,##0\\)", nil),
+    ("@", nil),
+    ("0%", nil),
+  ] as [(String, XLSX.DateStyle?)])
+  func dateStyle(code: String, expected: XLSX.DateStyle?) {
+    // Given / When
+    let style = XLSX.dateStyle(formatCode: code)
+
+    // Then
+    #expect(style == expected)
+  }
+
+  @Test("組み込みの表示形式の番号から日付か時刻かを見分ける", arguments: [
+    (14, XLSX.DateStyle.date),
+    (32, .time),
+    (2, nil),
+  ] as [(Int, XLSX.DateStyle?)])
+  func builtInDateStyle(id: Int, expected: XLSX.DateStyle?) {
+    // Given / When
+    let style = XLSX.builtInDateStyle(id)
+
+    // Then
+    #expect(style == expected)
+  }
+
+  @Test("日付のシリアル値を日付・時刻の文字列にする", arguments: [
+    // 1900 年基準と 1904 年基準
+    (45658, XLSX.DateStyle.date, false, "2025/01/01"),
+    (44196, .date, true, "2025/01/01"),
+    // 時刻だけ（秒があれば秒まで）
+    (0.75, .time, false, "18:00"),
+    (0.5 + 1.0 / 86_400, .time, false, "12:00:01"),
+    // 時刻を含む日付
+    (45658.25, .date, false, "2025/01/01 06:00"),
+    // 負の数は日付にしない
+    (-1, .date, false, nil),
+  ] as [(Double, XLSX.DateStyle, Bool, String?)])
+  func dateText(serial: Double, style: XLSX.DateStyle, date1904: Bool, expected: String?) {
+    // Given / When
+    let text = XLSX.dateText(serial: serial, style: style, date1904: date1904)
+
+    // Then
+    #expect(text == expected)
+  }
+
+  @Test("日付や時刻の文字列は、数や数式と取り違えず文字列として扱う", arguments: ["2025/01/01", "12:00"])
+  func dateTextStaysText(input: String) {
+    // Given / When
+    let literal = CellInput.literal(input)
+
+    // Then
+    #expect(literal == .text(input))
+  }
+
+  @Test("シート名を Excel の決まりに合わせる（使えない文字・引用符・空・重複・長さ・予約語）")
+  func sheetNames() {
+    // Given
+    let long = String(repeating: "長", count: 40)
+
+    // When
+    let names = XLSX.sheetNames(["a/b", "'引用'", "", "A/B", long, long, "History"])
+
+    // Then: 重複は大文字小文字を区別せず見る。31 文字に切り、番号を付けても 31 文字に収める
+    #expect(names == ["a_b", "引用", "Sheet3", "A_B (2)", String(repeating: "長", count: 31), String(repeating: "長", count: 27) + " (2)", "Sheet7"])
+  }
+
+  @Test("XML に書けない制御文字は取り除く")
+  func escapeRemovesControlCharacters() {
+    // Given / When
+    let escaped = XLSX.escape("a\u{01}b\u{0B}c")
+
+    // Then
+    #expect(escaped == "abc")
+  }
+
+  @Test("_xHHHH_ の書き方を文字に戻す", arguments: [
+    // 改行と、_ そのものを表す _x005F_
+    ("a_x000D__x000a_b_x005F_x0041_", "a\r\nb_x0041_"),
+    // サロゲートペア
+    ("_xD83D__xDE00_", "😀"),
+  ])
+  func unescapeText(text: String, expected: String) {
+    // Given / When
+    let unescaped = XLSX.unescapeText(text)
+
+    // Then
+    #expect(unescaped == expected)
+  }
+
+  @Test("_xHHHH_ に見える文字列は、書いて読み戻しても変わらない")
+  func escapeTextRoundTrip() {
+    // Given / When
+    let back = XLSX.unescapeText(XLSX.escapeText("_x0041_").replacingOccurrences(of: "&amp;", with: "&"))
+
+    // Then
+    #expect(back == "_x0041_")
   }
 }
