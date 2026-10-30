@@ -1,4 +1,5 @@
 import Foundation
+import Testing
 
 @testable import KinkoCore
 
@@ -12,4 +13,15 @@ func package(sheetXML: String, workbookXML: String? = nil, stylesXML: String? = 
     ("xl/_rels/workbook.xml.rels", Data(rels.utf8)),
     ("xl/worksheets/sheet1.xml", Data(#"<worksheet \#(ns)><sheetData>\#(sheetXML)</sheetData></worksheet>"#.utf8)),
   ])
+}
+
+/// .xlsx の中の 1 つの部品を文字列で読む
+func xmlPart(_ path: String, in xlsx: Data) throws -> String {
+  var zip = try ZipArchive(xlsx)
+  return String(decoding: try #require(try zip.read(path)), as: UTF8.self)
+}
+
+/// 位置を A1 形式の文字列にした表（食い違ったときに読みやすい）
+func byA1<Value>(_ values: [CellAddress: Value]) -> [String: Value] {
+  Dictionary(uniqueKeysWithValues: values.map { ($0.key.description, $0.value) })
 }

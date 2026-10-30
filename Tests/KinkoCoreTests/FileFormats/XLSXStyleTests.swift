@@ -64,288 +64,397 @@ UEsBAhQDFAAAAAgAjnxeXdooFmZ7AgAA4gYAABgAAAAAAAAAAAAAAIABEAsAAHhsL3dvcmtzaGVldHMv
 AAAABwAHAMEBAADBDQAAAAA=
 """
 
-@Test func readsCellStyles() throws {
-  let data = try #require(Data(base64Encoded: styledSample, options: .ignoreUnknownCharacters))
-  let sheet = try #require(try XLSX.read(data).sheets.first)
-  let cells: [String: String] = [
-    "A1": "太字", "B1": "斜体", "C1": "テーマ",
-    "A2": "120", "B2": "1234", "C2": "1234.5", "D2": "1234.5",
-    "A3": "0.125", "B3": "99.5", "C3": "1234567", "D3": "0.5",
-    "A4": "2026/10/30", "B4": "下線", "C4": "x", "D4": "y",
-    "A5": "1500", "B5": "3.5", "C5": "文字", "D5": "=A5*2", "E5": #"="a"&"b""#,
-    "B6": "FALSE",
-    // Excel の Alt+Enter の改行は、XML の中にそのまま LF として入っている
-    "A7": "1行目\n2行目", "B7": "中", "C7": "下", "D7": "均等", "A8": "自動",
-  ]
-  #expect(sheet.cells == cells.reduce(into: [:]) { $0[CellAddress($1.key)!] = $1.value })
-  // 期待する色は Python の colorsys（HLS）で別に計算したもの
-  let expected: [String: CellStyle] = [
-    // テーマの dk1（黒）の文字色は既定の色として持つ
-    "A1": style { $0.bold = true },
-    "B1": style {
-      $0.italic = true
-      $0.underline = true
-      $0.strikethrough = true
-      $0.textColor = color("FF0000")
-    },
-    // accent1 156082 を 80% 明るく、背景は accent2 E97132 を 60% 明るく
-    "C1": style {
-      $0.textColor = color("C1E5F5")
-      $0.fillColor = color("F6C6AD")
-    },
-    // 値のないセルでも塗りつぶしと罫線は残る
-    "D1": style {
-      $0.fillColor = color("FFFF00")
-      $0.borders = CellBorders(edges: .all)
-    },
-    "A2": style { $0.alignment = .center },
-    "B2": style {
-      $0.alignment = .right
-      $0.numberFormat = .currency(decimals: 0)
-    },
-    "C2": style { $0.numberFormat = .number(decimals: 1, grouping: true) },
-    "D2": style {
-      $0.alignment = .center
-      $0.numberFormat = .currency(decimals: 2)
-    },
-    "A3": style { $0.numberFormat = .percent(decimals: 3) },
-    // ドルは ¥ にせず、カンマ区切りの数にする
-    "B3": style { $0.numberFormat = .number(decimals: 2, grouping: true) },
-    "C3": style { $0.numberFormat = .number(decimals: 0, grouping: true) },
-    "D3": style { $0.numberFormat = .percent(decimals: 0) },
-    // 日付は文字列になるので表示形式は持たない。太字は残る
-    "A4": style { $0.bold = true },
-    // 二重下線も下線。indexed="10" は赤。中太線（medium）の色はそのまま
-    "B4": style {
-      $0.underline = true
-      $0.textColor = color("FF0000")
-      $0.borders = CellBorders(bottom: BorderLine(style: .medium, color: color("0070C0")))
-    },
-    // dk2 0E2841 を 25% 暗く。lightGray の模様は前景色で塗りつぶす。均等割り付けは標準。自動の色（auto）の線は色なし
-    "D4": style {
-      $0.textColor = color("0B1E31")
-      $0.fillColor = color("C0C0C0")
-      $0.borders = CellBorders(edges: [.left, .right], line: BorderLine(style: .dashed))
-    },
-    // "0.0," の末尾のカンマは千で割る指定で、区切りではない
-    "A5": style { $0.numberFormat = .number(decimals: 1, grouping: false) },
-    "B5": style { $0.numberFormat = .currency(decimals: 2) },
-    // 文字列には表示形式を付けない（配置だけ残る）
-    "C5": style { $0.alignment = .right },
-    // 数式でも結果が数なら表示形式を付ける
-    "D5": style { $0.numberFormat = .number(decimals: 0, grouping: true) },
-    // 値のない空のセルは、これから数を入れるかもしれないので表示形式を残す
-    "A6": style { $0.numberFormat = .number(decimals: 1, grouping: true) },
-    "B6": style { $0.alignment = .left },
-    "A7": style {
-      $0.wraps = true
-      $0.verticalAlignment = .top
-    },
-    "B7": style {
-      $0.alignment = .center
-      $0.verticalAlignment = .center
-    },
-    // 下揃えは既定なので書式を持たない（C7）。縦の均等割り付けは中央
-    "D7": style {
-      $0.wraps = true
-      $0.verticalAlignment = .center
-    },
-    // 罫線の種類と色: テーマの色（accent1 を 25% 暗く）、indexed の赤、黒（＝自動）、テーマの dk1（黒＝自動）
-    "A11": style {
-      $0.borders = CellBorders(
-        top: BorderLine(style: .thick), left: BorderLine(style: .double, color: color("104862")),
-        bottom: BorderLine(style: .dashDot), right: BorderLine(style: .dotted, color: color("FF0000")))
-    },
-    // 色のない線、indexed="64"（システムの文字色＝自動）、テーマの accent2
-    "B11": style {
-      $0.borders = CellBorders(
-        top: BorderLine(style: .slantDashDot), left: BorderLine(style: .hair),
-        bottom: BorderLine(style: .mediumDashed, color: color("E97132")),
-        right: BorderLine(style: .mediumDashDotDot, color: color("00B050")))
-    },
-  ]
-  #expect(sheet.styles == expected.reduce(into: [:]) { $0[CellAddress($1.key)!] = $1.value })
-  // 手で決めた高さだけを読む（8 行目の自動の高さは捨てる）。範囲の外の高さは 2〜409 に収める
-  #expect(sheet.rowHeights == [6: 45, 8: 2, 9: 409])
-}
-
-@Test func readsCustomPaletteAndIgnoresUnknownStyles() throws {
-  // 独自のパレット（<colors>）は styles.xml の末尾にある。番号の外の書式（s="5"）は既定として扱う
-  let palette = (0..<64).map { #"<rgbColor rgb="\#($0 == 10 ? "FF123456" : "FFFFFFFF")"/>"# }.joined()
-  let styles =
-    #"<fonts count="2"><font/><font><color indexed="10"/></font></fonts>"#
-    // 知らない線の種類は細線にする。色は独自のパレットから
-    + #"<borders count="2"><border/><border><top style="superThick"><color indexed="10"/></top></border></borders>"#
-    + #"<cellXfs count="2"><xf fontId="0"/><xf fontId="1" borderId="1"/></cellXfs>"#
-    + "<colors><indexedColors>\(palette)</indexedColors></colors>"
-  let data = try package(
-    sheetXML: #"<row r="1"><c r="A1" s="1"><v>1</v></c><c r="B1" s="5"><v>2</v></c><c r="C1" s="-1"/></row>"#, stylesXML: styles)
-  let sheet = try #require(try XLSX.read(data).sheets.first)
-  #expect(
-    sheet.styles == [
-      CellAddress("A1")!: style {
-        $0.textColor = color("123456")
-        $0.borders = CellBorders(top: BorderLine(style: .thin, color: color("123456")))
-      }
-    ])
-  #expect(sheet.cells.count == 2)
-}
-
-@Test func rejectsTooManyStyles() throws {
-  let styles = "<cellXfs>" + String(repeating: "<xf/>", count: XLSX.maxStyles + 2) + "</cellXfs>"
-  #expect(throws: SpreadsheetFileError.tooManyStyles(limit: XLSX.maxStyles)) {
-    try XLSX.read(package(sheetXML: "", stylesXML: styles))
+@Suite("XLSX の書式の読み書き")
+struct XLSXStyleTests {
+  private func readSample() throws -> Sheet {
+    let data = try #require(Data(base64Encoded: styledSample, options: .ignoreUnknownCharacters))
+    return try #require(try XLSX.read(data).sheets.first)
   }
-}
 
-@Test func themeTint() {
-  // Excel の色の選択肢に出る値（Office 2013〜2021 のテーマ）と一致する
-  #expect(XLSX.tinted(color("4472C4"), by: 0.79998168889431442) == color("DAE3F3"))
-  #expect(XLSX.tinted(color("ED7D31"), by: 0.59999389629810485) == color("F8CBAD"))
-  #expect(XLSX.tinted(color("FFFFFF"), by: -0.1499984740745262) == color("D9D9D9"))
-  #expect(XLSX.tinted(color("000000"), by: 0.499984740745262) == color("7F7F7F"))
-  #expect(XLSX.tinted(color("4472C4"), by: 0) == color("4472C4"))
-}
+  private func written(_ sheet: Sheet) throws -> Data {
+    try XLSX.write(Workbook(sheets: [sheet])) { _, _ in .empty }
+  }
 
-@Test func numberFormatCodes() {
-  let cases: [(String, NumberFormat)] = [
-    ("General", .general), ("@", .general), ("0.00E+00", .general), ("# ?/?", .general), ("", .general),
+  // MARK: - 読み込み
+
+  @Test("書式付きのブックの値を読む（Alt+Enter の改行もそのまま）")
+  func readsStyledValues() throws {
+    // Given / When
+    let sheet = try readSample()
+
+    // Then
+    #expect(
+      byA1(sheet.cells) == [
+        "A1": "太字", "B1": "斜体", "C1": "テーマ",
+        "A2": "120", "B2": "1234", "C2": "1234.5", "D2": "1234.5",
+        "A3": "0.125", "B3": "99.5", "C3": "1234567", "D3": "0.5",
+        "A4": "2026/10/30", "B4": "下線", "C4": "x", "D4": "y",
+        "A5": "1500", "B5": "3.5", "C5": "文字", "D5": "=A5*2", "E5": #"="a"&"b""#,
+        "B6": "FALSE",
+        // Excel の Alt+Enter の改行は、XML の中にそのまま LF として入っている
+        "A7": "1行目\n2行目", "B7": "中", "C7": "下", "D7": "均等", "A8": "自動",
+      ])
+  }
+
+  @Test("セルの文字・塗りつぶし・罫線・配置・表示形式を読む")
+  func readsCellStyles() throws {
+    // Given / When
+    let sheet = try readSample()
+
+    // Then: 期待する色は Python の colorsys（HLS）で別に計算したもの
+    #expect(
+      byA1(sheet.styles) == [
+        // テーマの dk1（黒）の文字色は既定の色として持つ
+        "A1": style { $0.bold = true },
+        "B1": style {
+          $0.italic = true
+          $0.underline = true
+          $0.strikethrough = true
+          $0.textColor = color("FF0000")
+        },
+        // accent1 156082 を 80% 明るく、背景は accent2 E97132 を 60% 明るく
+        "C1": style {
+          $0.textColor = color("C1E5F5")
+          $0.fillColor = color("F6C6AD")
+        },
+        // 値のないセルでも塗りつぶしと罫線は残る
+        "D1": style {
+          $0.fillColor = color("FFFF00")
+          $0.borders = CellBorders(edges: .all)
+        },
+        "A2": style { $0.alignment = .center },
+        "B2": style {
+          $0.alignment = .right
+          $0.numberFormat = .currency(decimals: 0)
+        },
+        "C2": style { $0.numberFormat = .number(decimals: 1, grouping: true) },
+        "D2": style {
+          $0.alignment = .center
+          $0.numberFormat = .currency(decimals: 2)
+        },
+        "A3": style { $0.numberFormat = .percent(decimals: 3) },
+        // ドルは ¥ にせず、カンマ区切りの数にする
+        "B3": style { $0.numberFormat = .number(decimals: 2, grouping: true) },
+        "C3": style { $0.numberFormat = .number(decimals: 0, grouping: true) },
+        "D3": style { $0.numberFormat = .percent(decimals: 0) },
+        // 日付は文字列になるので表示形式は持たない。太字は残る
+        "A4": style { $0.bold = true },
+        // 二重下線も下線。indexed="10" は赤。中太線（medium）の色はそのまま
+        "B4": style {
+          $0.underline = true
+          $0.textColor = color("FF0000")
+          $0.borders = CellBorders(bottom: BorderLine(style: .medium, color: color("0070C0")))
+        },
+        // dk2 0E2841 を 25% 暗く。lightGray の模様は前景色で塗りつぶす。均等割り付けは標準。自動の色（auto）の線は色なし
+        "D4": style {
+          $0.textColor = color("0B1E31")
+          $0.fillColor = color("C0C0C0")
+          $0.borders = CellBorders(edges: [.left, .right], line: BorderLine(style: .dashed))
+        },
+        // "0.0," の末尾のカンマは千で割る指定で、区切りではない
+        "A5": style { $0.numberFormat = .number(decimals: 1, grouping: false) },
+        "B5": style { $0.numberFormat = .currency(decimals: 2) },
+        // 文字列には表示形式を付けない（配置だけ残る）
+        "C5": style { $0.alignment = .right },
+        // 数式でも結果が数なら表示形式を付ける
+        "D5": style { $0.numberFormat = .number(decimals: 0, grouping: true) },
+        // 値のない空のセルは、これから数を入れるかもしれないので表示形式を残す
+        "A6": style { $0.numberFormat = .number(decimals: 1, grouping: true) },
+        "B6": style { $0.alignment = .left },
+        "A7": style {
+          $0.wraps = true
+          $0.verticalAlignment = .top
+        },
+        "B7": style {
+          $0.alignment = .center
+          $0.verticalAlignment = .center
+        },
+        // 下揃えは既定なので書式を持たない（C7）。縦の均等割り付けは中央
+        "D7": style {
+          $0.wraps = true
+          $0.verticalAlignment = .center
+        },
+        // 罫線の種類と色: テーマの色（accent1 を 25% 暗く）、indexed の赤、黒（＝自動）、テーマの dk1（黒＝自動）
+        "A11": style {
+          $0.borders = CellBorders(
+            top: BorderLine(style: .thick), left: BorderLine(style: .double, color: color("104862")),
+            bottom: BorderLine(style: .dashDot), right: BorderLine(style: .dotted, color: color("FF0000")))
+        },
+        // 色のない線、indexed="64"（システムの文字色＝自動）、テーマの accent2
+        "B11": style {
+          $0.borders = CellBorders(
+            top: BorderLine(style: .slantDashDot), left: BorderLine(style: .hair),
+            bottom: BorderLine(style: .mediumDashed, color: color("E97132")),
+            right: BorderLine(style: .mediumDashDotDot, color: color("00B050")))
+        },
+      ])
+  }
+
+  @Test("手で決めた行の高さだけを読み、2〜409 に収める")
+  func readsRowHeights() throws {
+    // Given / When
+    let sheet = try readSample()
+
+    // Then: 8 行目の自動の高さは捨てる
+    #expect(sheet.rowHeights == [6: 45, 8: 2, 9: 409])
+  }
+
+  @Test("独自のパレットの色を使い、番号の外の書式は既定として扱う")
+  func customPaletteAndUnknownStyles() throws {
+    // Given: 独自のパレット（<colors>）は styles.xml の末尾にある。B1 の s="5" と C1 の s="-1" は番号の外
+    let palette = (0..<64).map { #"<rgbColor rgb="\#($0 == 10 ? "FF123456" : "FFFFFFFF")"/>"# }.joined()
+    let styles =
+      #"<fonts count="2"><font/><font><color indexed="10"/></font></fonts>"#
+      // 知らない線の種類は細線にする。色は独自のパレットから
+      + #"<borders count="2"><border/><border><top style="superThick"><color indexed="10"/></top></border></borders>"#
+      + #"<cellXfs count="2"><xf fontId="0"/><xf fontId="1" borderId="1"/></cellXfs>"#
+      + "<colors><indexedColors>\(palette)</indexedColors></colors>"
+    let data = try package(
+      sheetXML: #"<row r="1"><c r="A1" s="1"><v>1</v></c><c r="B1" s="5"><v>2</v></c><c r="C1" s="-1"/></row>"#, stylesXML: styles)
+
+    // When
+    let sheet = try #require(try XLSX.read(data).sheets.first)
+
+    // Then
+    #expect(
+      byA1(sheet.styles) == [
+        "A1": style {
+          $0.textColor = color("123456")
+          $0.borders = CellBorders(top: BorderLine(style: .thin, color: color("123456")))
+        }
+      ])
+    #expect(sheet.cells.count == 2)
+  }
+
+  @Test("書式が多すぎるブックは断る")
+  func rejectsTooManyStyles() throws {
+    // Given
+    let data = try package(sheetXML: "", stylesXML: "<cellXfs>" + String(repeating: "<xf/>", count: XLSX.maxStyles + 2) + "</cellXfs>")
+
+    // When / Then
+    #expect(throws: SpreadsheetFileError.tooManyStyles(limit: XLSX.maxStyles)) { try XLSX.read(data) }
+  }
+
+  @Test("テーマの色の tint は Excel の色の選択肢に出る値と一致する", arguments: [
+    // Office 2013〜2021 のテーマ。明るく
+    ("4472C4", 0.79998168889431442, "DAE3F3"),
+    ("ED7D31", 0.59999389629810485, "F8CBAD"),
+    ("000000", 0.499984740745262, "7F7F7F"),
+    // 暗く
+    ("FFFFFF", -0.1499984740745262, "D9D9D9"),
+    // 0 ならそのまま
+    ("4472C4", 0, "4472C4"),
+  ])
+  func themeTint(base: String, tint: Double, expected: String) {
+    // Given / When
+    let tinted = XLSX.tinted(color(base), by: tint)
+
+    // Then
+    #expect(tinted == color(expected))
+  }
+
+  @Test("表示形式のコードを Kinko の表示形式にする", arguments: [
+    // 対応しないものは標準
+    ("General", NumberFormat.general), ("@", .general), ("0.00E+00", .general), ("# ?/?", .general), ("", .general),
+    // 数
     ("0", .number(decimals: 0, grouping: false)),
     ("#,##0.000", .number(decimals: 3, grouping: true)),
     ("#,#", .number(decimals: 0, grouping: true)),
     ("0.0,", .number(decimals: 1, grouping: false)),
     ("#,##0.0_ ;[Red]\\-#,##0.0\\ ", .number(decimals: 1, grouping: true)),
+    // 円は通貨。ドルはカンマ区切りの数
     ("[$¥-411]#,##0", .currency(decimals: 0)),
     ("[$￥-411]#,##0.00;[Red]-[$￥-411]#,##0.00", .currency(decimals: 2)),
     ("\"¥\"#,##0", .currency(decimals: 0)),
     ("\\¥#,##0.0", .currency(decimals: 1)),
     ("¥#,##0;¥\\-#,##0", .currency(decimals: 0)),
     ("[$$-409]#,##0.00", .number(decimals: 2, grouping: true)),
+    // パーセント（小数は 10 桁まで）
     ("0.0%", .percent(decimals: 1)),
     ("[Red]0%", .percent(decimals: 0)),
     ("0.000000000000%", .percent(decimals: 10)),
+    // 引用符の中の文字は飾り
     ("\"合計\"#,##0\"円\"", .number(decimals: 0, grouping: true)),
-  ]
-  for (code, format) in cases {
-    #expect(XLSX.numberFormat(formatCode: code) == format, "\(code)")
+  ] as [(String, NumberFormat)])
+  func numberFormat(code: String, expected: NumberFormat) {
+    // Given / When
+    let format = XLSX.numberFormat(formatCode: code)
+
+    // Then
+    #expect(format == expected)
   }
-}
 
-@Test func writeThenReadStyles() throws {
-  let shared = style {
-    $0.bold = true
-    $0.italic = true
-    $0.underline = true
-    $0.strikethrough = true
-    $0.textColor = color("112233")
-    $0.fillColor = color("AABBCC")
-    $0.borders = CellBorders(edges: .all, line: BorderLine(style: .double, color: color("00B050")))
-    $0.alignment = .center
-    $0.numberFormat = .currency(decimals: 2)
-  }
-  var sheet = Sheet(name: "書式")
-  sheet[CellAddress("A1")!] = "1"
-  sheet[CellAddress("A2")!] = "2"
-  sheet[style: CellAddress("A1")!] = shared
-  sheet[style: CellAddress("A2")!] = shared
-  sheet[CellAddress("B1")!] = "文字"
-  sheet[style: CellAddress("B1")!] = style {
-    $0.textColor = color("FF0000")
-    $0.alignment = .right
-    $0.borders = CellBorders(edges: [.top, .bottom])
-  }
-  // 値のない、書式だけのセル
-  sheet[style: CellAddress("C1")!] = style { $0.fillColor = color("FFFF00") }
-  sheet[style: CellAddress("C2")!] = style { $0.borders = CellBorders(left: BorderLine(style: .thick)) }
-  sheet[style: CellAddress("C3")!] = style { $0.alignment = .left }
-  let formats: [NumberFormat] = [
-    .number(decimals: 0, grouping: false), .number(decimals: 2, grouping: false), .number(decimals: 0, grouping: true),
-    .number(decimals: 2, grouping: true), .number(decimals: 3, grouping: false), .number(decimals: 1, grouping: true),
-    .currency(decimals: 0), .currency(decimals: 2), .currency(decimals: 4), .percent(decimals: 0), .percent(decimals: 2),
-    .percent(decimals: 1),
-  ]
-  for (row, format) in formats.enumerated() {
-    let address = CellAddress(row: row, column: 5)
-    sheet[address] = "1234.5"
-    sheet[style: address] = style { $0.numberFormat = format }
-  }
-  let data = try XLSX.write(Workbook(sheets: [sheet])) { _, _ in .empty }
+  // MARK: - 書き出し: 文字・塗りつぶし・表示形式
 
-  let read = try #require(try XLSX.read(data).sheets.first)
-  #expect(read.styles == sheet.styles)
-  #expect(read.cells == sheet.cells)
-
-  var zip = try ZipArchive(data)
-  let xml = String(decoding: try #require(try zip.read("xl/worksheets/sheet1.xml")), as: UTF8.self)
-  // 同じ書式のセルは同じ番号を使う。書式だけのセルは値なしで書く
-  #expect(xml.contains(#"<c r="A1" s="1"><v>1</v></c>"#))
-  #expect(xml.contains(#"<c r="A2" s="1"><v>2</v></c>"#))
-  #expect(xml.contains(#"<c r="C1" s="3"/>"#))
-  let styles = String(decoding: try #require(try zip.read("xl/styles.xml")), as: UTF8.self)
-  // 既定 1 + 共有 1 + B1 + C1〜C3 + 表示形式 12 = 18
-  #expect(styles.contains(#"<cellXfs count="18">"#))
-  // 組み込みの番号（1〜4, 9, 10）にないものだけがユーザー定義になる
-  #expect(styles.contains(#"<numFmts count="6">"#))
-  #expect(styles.contains(#"formatCode="[$¥-411]#,##0.00""#))
-  #expect(styles.contains(#"<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>"#))
-}
-
-@Test func writeThenReadAlignmentAndRowHeights() throws {
-  var sheet = Sheet(name: "配置")
-  let wrapTop = style {
-    $0.wraps = true
-    $0.verticalAlignment = .top
-  }
-  sheet[CellAddress("A1")!] = "1行目\n2行目\n\n4行目"
-  sheet[style: CellAddress("A1")!] = wrapTop
-  sheet[CellAddress("A2")!] = "改行だけ\n"
-  sheet[style: CellAddress("A2")!] = wrapTop
-  sheet[style: CellAddress("B1")!] = style {
-    $0.alignment = .right
-    $0.verticalAlignment = .center
-  }
-  sheet[CellAddress("B2")!] = "x"
-  sheet[style: CellAddress("B2")!] = style { $0.wraps = true }
-  // 1 行目と 2 行目はセルあり、5 行目と 100 行目はセルなし
-  sheet.rowHeights = [0: 45, 1: 18.75, 4: 30, 99: 2]
-  let data = try XLSX.write(Workbook(sheets: [sheet])) { _, _ in .empty }
-
-  let read = try #require(try XLSX.read(data).sheets.first)
-  #expect(read.cells == sheet.cells)
-  #expect(read.styles == sheet.styles)
-  #expect(read.rowHeights == sheet.rowHeights)
-
-  var zip = try ZipArchive(data)
-  let xml = String(decoding: try #require(try zip.read("xl/worksheets/sheet1.xml")), as: UTF8.self)
-  // セルのない行も、行の順に空の <row> として書く。改行は文字参照で残す
-  #expect(xml.contains(#"<row r="2" ht="18.75" customHeight="1"><c r="A2" s="1" t="inlineStr"><is><t xml:space="preserve">改行だけ&#10;</t></is></c>"#))
-  #expect(xml.contains(#"</row><row r="5" ht="30.0" customHeight="1"/><row r="100" ht="2.0" customHeight="1"/></sheetData>"#))
-  let styles = String(decoding: try #require(try zip.read("xl/styles.xml")), as: UTF8.self)
-  #expect(styles.contains(#"applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>"#))
-  #expect(styles.contains(#"<alignment horizontal="right" vertical="center"/>"#))
-  // 同じ書式の A1 と A2 は 1 つにまとまる（既定 + 3 種類）
-  #expect(styles.contains(#"<cellXfs count="4">"#))
-}
-
-@Test func writeThenReadBorderStyles() throws {
-  var sheet = Sheet(name: "罫線")
-  // 13 種類すべてを、色あり・色なしで 4 辺に
-  for (row, style) in BorderStyle.allCases.enumerated() {
-    let colored = BorderLine(style: style, color: color(String(format: "%02X%02X%02X", row * 19, 255 - row * 19, 128)))
-    sheet[style: CellAddress(row: row, column: 0)] = KinkoCoreTests.style {
-      $0.borders = CellBorders(top: colored, left: BorderLine(style: style), bottom: colored, right: BorderLine(style: style))
+  /// 同じ書式の A1・A2、別の書式の B1、値のない書式だけの C1〜C3、表示形式 12 種類の F1〜F12
+  private var formattedSheet: Sheet {
+    let shared = style {
+      $0.bold = true
+      $0.italic = true
+      $0.underline = true
+      $0.strikethrough = true
+      $0.textColor = color("112233")
+      $0.fillColor = color("AABBCC")
+      $0.borders = CellBorders(edges: .all, line: BorderLine(style: .double, color: color("00B050")))
+      $0.alignment = .center
+      $0.numberFormat = .currency(decimals: 2)
     }
+    var sheet = Sheet(name: "書式", cells: ["A1": "1", "A2": "2", "B1": "文字"])
+    sheet[style: "A1"] = shared
+    sheet[style: "A2"] = shared
+    sheet[style: "B1"] = style {
+      $0.textColor = color("FF0000")
+      $0.alignment = .right
+      $0.borders = CellBorders(edges: [.top, .bottom])
+    }
+    sheet[style: "C1"] = style { $0.fillColor = color("FFFF00") }
+    sheet[style: "C2"] = style { $0.borders = CellBorders(left: BorderLine(style: .thick)) }
+    sheet[style: "C3"] = style { $0.alignment = .left }
+    let formats: [NumberFormat] = [
+      .number(decimals: 0, grouping: false), .number(decimals: 2, grouping: false), .number(decimals: 0, grouping: true),
+      .number(decimals: 2, grouping: true), .number(decimals: 3, grouping: false), .number(decimals: 1, grouping: true),
+      .currency(decimals: 0), .currency(decimals: 2), .currency(decimals: 4), .percent(decimals: 0), .percent(decimals: 2),
+      .percent(decimals: 1),
+    ]
+    for (row, format) in formats.enumerated() {
+      let address = CellAddress(row: row, column: 5)
+      sheet[address] = "1234.5"
+      sheet[style: address] = style { $0.numberFormat = format }
+    }
+    return sheet
   }
-  // 1 辺だけ
-  sheet[style: CellAddress("C1")!] = style { $0.borders = CellBorders(right: BorderLine(style: .double, color: color("FF0000"))) }
-  let data = try XLSX.write(Workbook(sheets: [sheet])) { _, _ in .empty }
-  let read = try #require(try XLSX.read(data).sheets.first)
-  #expect(read.styles == sheet.styles)
 
-  var zip = try ZipArchive(data)
-  let styles = String(decoding: try #require(try zip.read("xl/styles.xml")), as: UTF8.self)
-  #expect(styles.contains(#"<border><left/><right style="double"><color rgb="FFFF0000"/></right><top/><bottom/><diagonal/></border>"#))
-  #expect(styles.contains(#"<left style="mediumDashDotDot"><color indexed="64"/></left>"#))
-  // 既定（空）+ 13 種類 + 1 辺だけ
-  #expect(styles.contains(#"<borders count="15">"#))
+  @Test("書式を書いて読み戻せる")
+  func writeThenReadStyles() throws {
+    // Given
+    let sheet = formattedSheet
+
+    // When
+    let read = try #require(try XLSX.read(written(sheet)).sheets.first)
+
+    // Then
+    #expect(read.styles == sheet.styles)
+    #expect(read.cells == sheet.cells)
+  }
+
+  @Test("同じ書式のセルは同じ番号を使い、書式だけのセルは値なしで書く")
+  func writesStyleIndexes() throws {
+    // Given / When
+    let xml = try xmlPart("xl/worksheets/sheet1.xml", in: written(formattedSheet))
+
+    // Then
+    #expect(xml.contains(#"<c r="A1" s="1"><v>1</v></c>"#))
+    #expect(xml.contains(#"<c r="A2" s="1"><v>2</v></c>"#))
+    #expect(xml.contains(#"<c r="C1" s="3"/>"#))
+  }
+
+  @Test("styles.xml には使う書式と、組み込みにない表示形式だけを書く")
+  func writesStylesPart() throws {
+    // Given / When
+    let styles = try xmlPart("xl/styles.xml", in: written(formattedSheet))
+
+    // Then: 既定 1 + 共有 1 + B1 + C1〜C3 + 表示形式 12 = 18
+    #expect(styles.contains(#"<cellXfs count="18">"#))
+    // 組み込みの番号（1〜4, 9, 10）にないものだけがユーザー定義になる
+    #expect(styles.contains(#"<numFmts count="6">"#))
+    #expect(styles.contains(#"formatCode="[$¥-411]#,##0.00""#))
+    // Excel が決まって置く 2 つの塗りつぶし
+    #expect(styles.contains(#"<fill><patternFill patternType="none"/></fill><fill><patternFill patternType="gray125"/></fill>"#))
+  }
+
+  // MARK: - 書き出し: 配置と行の高さ
+
+  /// 折り返して上揃えの A1・A2（改行あり）、値のない B1、折り返しだけの B2。1・2・5・100 行目に高さ
+  private var alignedSheet: Sheet {
+    let wrapTop = style {
+      $0.wraps = true
+      $0.verticalAlignment = .top
+    }
+    var sheet = Sheet(name: "配置", cells: ["A1": "1行目\n2行目\n\n4行目", "A2": "改行だけ\n", "B2": "x"])
+    sheet[style: "A1"] = wrapTop
+    sheet[style: "A2"] = wrapTop
+    sheet[style: "B1"] = style {
+      $0.alignment = .right
+      $0.verticalAlignment = .center
+    }
+    sheet[style: "B2"] = style { $0.wraps = true }
+    // 1 行目と 2 行目はセルあり、5 行目と 100 行目はセルなし
+    sheet.rowHeights = [0: 45, 1: 18.75, 4: 30, 99: 2]
+    return sheet
+  }
+
+  @Test("配置と行の高さを書いて読み戻せる")
+  func writeThenReadAlignment() throws {
+    // Given
+    let sheet = alignedSheet
+
+    // When
+    let read = try #require(try XLSX.read(written(sheet)).sheets.first)
+
+    // Then
+    #expect(read.cells == sheet.cells)
+    #expect(read.styles == sheet.styles)
+    #expect(read.rowHeights == sheet.rowHeights)
+  }
+
+  @Test("セルのない行も行の順に空の <row> として書き、改行は文字参照で残す")
+  func writesRows() throws {
+    // Given / When
+    let xml = try xmlPart("xl/worksheets/sheet1.xml", in: written(alignedSheet))
+
+    // Then
+    #expect(xml.contains(#"<row r="2" ht="18.75" customHeight="1"><c r="A2" s="1" t="inlineStr"><is><t xml:space="preserve">改行だけ&#10;</t></is></c>"#))
+    #expect(xml.contains(#"</row><row r="5" ht="30.0" customHeight="1"/><row r="100" ht="2.0" customHeight="1"/></sheetData>"#))
+  }
+
+  @Test("配置を styles.xml に書き、同じ書式は 1 つにまとめる")
+  func writesAlignment() throws {
+    // Given / When
+    let styles = try xmlPart("xl/styles.xml", in: written(alignedSheet))
+
+    // Then
+    #expect(styles.contains(#"applyAlignment="1"><alignment vertical="top" wrapText="1"/></xf>"#))
+    #expect(styles.contains(#"<alignment horizontal="right" vertical="center"/>"#))
+    // 同じ書式の A1 と A2 は 1 つにまとまる（既定 + 3 種類）
+    #expect(styles.contains(#"<cellXfs count="4">"#))
+  }
+
+  // MARK: - 書き出し: 罫線
+
+  /// 13 種類すべての線を、色あり（上下）・色なし（左右）で 4 辺に引いた A1〜A13 と、右の 1 辺だけの C1
+  private var borderedSheet: Sheet {
+    var sheet = Sheet(name: "罫線")
+    for (row, kind) in BorderStyle.allCases.enumerated() {
+      let colored = BorderLine(style: kind, color: color(String(format: "%02X%02X%02X", row * 19, 255 - row * 19, 128)))
+      sheet[style: CellAddress(row: row, column: 0)] = style {
+        $0.borders = CellBorders(top: colored, left: BorderLine(style: kind), bottom: colored, right: BorderLine(style: kind))
+      }
+    }
+    sheet[style: "C1"] = style { $0.borders = CellBorders(right: BorderLine(style: .double, color: color("FF0000"))) }
+    return sheet
+  }
+
+  @Test("すべての種類の罫線を書いて読み戻せる")
+  func writeThenReadBorders() throws {
+    // Given
+    let sheet = borderedSheet
+
+    // When
+    let read = try #require(try XLSX.read(written(sheet)).sheets.first)
+
+    // Then
+    #expect(read.styles == sheet.styles)
+  }
+
+  @Test("罫線を styles.xml に書く（線のない辺は空の要素、色のない線は自動の色）")
+  func writesBorders() throws {
+    // Given / When
+    let styles = try xmlPart("xl/styles.xml", in: written(borderedSheet))
+
+    // Then
+    #expect(styles.contains(#"<border><left/><right style="double"><color rgb="FFFF0000"/></right><top/><bottom/><diagonal/></border>"#))
+    #expect(styles.contains(#"<left style="mediumDashDotDot"><color indexed="64"/></left>"#))
+    // 既定（空）+ 13 種類 + 1 辺だけ
+    #expect(styles.contains(#"<borders count="15">"#))
+  }
 }
