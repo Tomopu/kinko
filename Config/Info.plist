@@ -34,7 +34,7 @@
 		</dict>
 	</array>
 	<key>KinkoUpdateRepository</key>
-	<string>Tomopu/Kinko</string>
+	<string>Tomopu/kinko</string>
 	<key>LSApplicationCategoryType</key>
 	<string>public.app-category.productivity</string>
 	<key>LSMinimumSystemVersion</key>

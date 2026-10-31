@@ -27,7 +27,7 @@ open build/Kinko.app
   3. 次からはふつうに開ける（ターミナルなら `xattr -dr com.apple.quarantine /Applications/Kinko.app` でも同じ）
 - この Mac 専用の金庫・Touch ID は、キーチェーンを使わない作りなので ad-hoc 署名でも動く
 - Apple Developer Program に入ったら、`SIGN_IDENTITY="Developer ID Application: …"` と `NOTARY_PROFILE=<notarytool store-credentials で保存した名前>` を付けて実行すると、Developer ID で署名し、公証と staple まで行う（受け取った人はダブルクリックだけで開ける）
-- 更新：アプリのメニューの「アップデートを確認…」を押したときだけ、GitHub の `https://api.github.com/repos/<KinkoUpdateRepository>/releases/latest` を調べる（確認先は `Config/Info.plist` の `KinkoUpdateRepository`、今は `Tomopu/Kinko`）。新しい版があれば変更内容と「DMG をダウンロード」を出し、入れ替えは手でしてもらう。自分からは通信せず、自動でダウンロードも入れ替えもしない。送るのは版の番号（User-Agent）だけで、GitHub には IP アドレスも見える
+- 更新：アプリのメニューの「アップデートを確認…」を押したときだけ、GitHub の `https://api.github.com/repos/<KinkoUpdateRepository>/releases/latest` を調べる（確認先は `Config/Info.plist` の `KinkoUpdateRepository`、今は `Tomopu/kinko`）。新しい版があれば変更内容と「DMG をダウンロード」を出し、入れ替えは手でしてもらう。自分からは通信せず、自動でダウンロードも入れ替えもしない。送るのは版の番号（User-Agent）だけで、GitHub には IP アドレスも見える
 - 新しい版を出すときは、`CFBundleShortVersionString` を上げて `./scripts/make-dmg.sh` を実行し、GitHub でタグ `v<版>` のリリースを作って DMG を添付する（プレリリースにすると確認の対象にならない）。中身の形式が上がる版では、古い版で開けなくなることを変更内容に書いておく
 - リリースの情報は外から来るデータとして読む：github.com を https で指す URL だけを開き、変更内容はリンクや書式として解釈せずそのまま見せ、答えの大きさにも上限を付ける
 - 配るときは SHA-256 もリリースに書いておくと、受け取った人が改ざんされていないか確かめられる（`shasum -a 256 Kinko-<版>.dmg`）

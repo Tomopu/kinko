@@ -99,19 +99,19 @@ extension Snapshot {
     let release = Release(
       version: AppVersion("0.14.0")!, title: "Kinko 0.14.0",
       notes: "## 変更\n- PDF の中を検索できるようにした\n- 表の行と列を固定できるようにした\n\n中身の形式が 8 になります。一度保存すると 0.13 では開けません。",
-      page: URL(string: "https://github.com/Tomopu/Kinko/releases/tag/v0.14.0")!,
-      dmg: URL(string: "https://github.com/Tomopu/Kinko/releases/download/v0.14.0/Kinko-0.14.0.dmg")!)
+      page: URL(string: "https://github.com/Tomopu/kinko/releases/tag/v0.14.0")!,
+      dmg: URL(string: "https://github.com/Tomopu/kinko/releases/download/v0.14.0/Kinko-0.14.0.dmg")!)
     for (state, name) in [
       (UpdateChecker.State.available(release), "update-available"), (.upToDate(current), "update-latest"),
       (.failed(UpdateError.network("オフライン").localizedDescription), "update-failed"),
     ] {
-      let checker = UpdateChecker(current: current, repository: "Tomopu/Kinko", state: state)
+      let checker = UpdateChecker(current: current, repository: "Tomopu/kinko", state: state)
       renderView(UpdateView().environment(checker).background(Color(nsColor: .windowBackgroundColor)), appearance: .aqua, to: directory.appending(path: "\(name).png"))
     }
 
     guard ProcessInfo.processInfo.environment["KINKO_SNAPSHOT_NETWORK"] == "1" else { return }
     // リリースのあるリポジトリでは新しい版が見つかり、リリースのないリポジトリでは最新と答える
-    for repository in ["swiftlang/swift-markdown", "Tomopu/Kinko"] {
+    for repository in ["swiftlang/swift-markdown", "Tomopu/kinko"] {
       let checker = UpdateChecker(current: AppVersion("0.0.1"), repository: repository)
       wait { await checker.check() }
       print("snapshot: update \(repository) -> \(checker.state)")

@@ -8,8 +8,8 @@ struct ReleaseTests {
   /// GitHub の /releases/latest の答えをまねた JSON
   private func payload(
     tag: String = "v0.14.0", name: String? = "Kinko 0.14.0", body: String? = "## 変更\r\n- PDF の検索",
-    page: String = "https://github.com/Tomopu/Kinko/releases/tag/v0.14.0",
-    assets: [(String, String)] = [("Kinko-0.14.0.dmg", "https://github.com/Tomopu/Kinko/releases/download/v0.14.0/Kinko-0.14.0.dmg")],
+    page: String = "https://github.com/Tomopu/kinko/releases/tag/v0.14.0",
+    assets: [(String, String)] = [("Kinko-0.14.0.dmg", "https://github.com/Tomopu/kinko/releases/download/v0.14.0/Kinko-0.14.0.dmg")],
     prerelease: Bool = false
   ) -> Data {
     var object: [String: Any] = [
@@ -73,8 +73,8 @@ struct ReleaseTests {
     for data in [
       payload(prerelease: true),
       payload(tag: "nightly"),
-      payload(page: "http://github.com/Tomopu/Kinko/releases/tag/v0.14.0"),
-      payload(page: "https://github.com.evil.example/Tomopu/Kinko"),
+      payload(page: "http://github.com/Tomopu/kinko/releases/tag/v0.14.0"),
+      payload(page: "https://github.com.evil.example/Tomopu/kinko"),
       Data("<html>".utf8),
     ] {
       #expect(throws: UpdateError.unreadable) { try Release.decode(data) }
