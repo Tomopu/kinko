@@ -83,6 +83,7 @@ enum Snapshot {
     checkEraseAfterFailures(directory: directory)
     checkDeviceBound(directory: directory)
     checkFeatures(url: url, directory: directory)
+    checkUpdates(directory: directory)
     exit(0)
   }
 

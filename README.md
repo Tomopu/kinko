@@ -28,6 +28,9 @@ swift run Kinko --snapshot docs/figure/ui   # 開発用：主な画面を PNG �
   3. 次からはふつうに開ける（ターミナルなら `xattr -dr com.apple.quarantine /Applications/Kinko.app` でも同じ）
 - この Mac 専用の金庫・Touch ID は、キーチェーンを使わない作りなので ad-hoc 署名でも動く
 - Apple Developer Program に入ったら、`SIGN_IDENTITY="Developer ID Application: …"` と `NOTARY_PROFILE=<notarytool store-credentials で保存した名前>` を付けて実行すると、Developer ID で署名し、公証と staple まで行う（受け取った人はダブルクリックだけで開ける）
+- 更新：アプリのメニューの「アップデートを確認…」を押したときだけ、GitHub の `https://api.github.com/repos/<KinkoUpdateRepository>/releases/latest` を調べる（確認先は `Config/Info.plist` の `KinkoUpdateRepository`、今は `Tomopu/Kinko`）。新しい版があれば変更内容と「DMG をダウンロード」を出し、入れ替えは手でしてもらう。自分からは通信せず、自動でダウンロードも入れ替えもしない。送るのは版の番号（User-Agent）だけで、GitHub には IP アドレスも見える
+- 新しい版を出すときは、`CFBundleShortVersionString` を上げて `./scripts/make-dmg.sh` を実行し、GitHub でタグ `v<版>` のリリースを作って DMG を添付する（プレリリースにすると確認の対象にならない）。中身の形式が上がる版では、古い版で開けなくなることを変更内容に書いておく
+- リリースの情報は外から来るデータとして読む：github.com を https で指す URL だけを開き、変更内容はリンクや書式として解釈せずそのまま見せ、答えの大きさにも上限を付ける
 - 配るときは SHA-256 もリリースに書いておくと、受け取った人が改ざんされていないか確かめられる（`shasum -a 256 Kinko-<版>.dmg`）
 
 ## 構成
@@ -44,6 +47,7 @@ swift run Kinko --snapshot docs/figure/ui   # 開発用：主な画面を PNG �
 | `Sources/Kinko/Vault/` | 金庫を開いている間の状態（`VaultSession`。失敗回数での削除・鍵の作り直しもここ）、Secure Enclave の鍵の置き場所と Touch ID（`DeviceKeyStore`）、復旧コードの画面（`RecoveryViews`）、目のボタンつきのパスワード欄（`PasswordField`） |
 | `Sources/Kinko/Settings/` | 設定画面（`SettingsView`。セキュリティとパスワード変更のタブ）、パスワードの変更（`ChangePasswordForm`）、守り方の違いの表（`ProtectionComparison`） |
 | `Sources/Kinko/Workspace/` | サイドバーつきの編集画面（`WorkspaceView`）、ドラッグで運ぶ項目（`ItemReference`） |
+| `Sources/Kinko/Update/` | 「アップデートを確認…」（`UpdateChecker` `UpdateView`。版の比べ方とリリースの読み取りは `Sources/KinkoCore/Update/Release.swift`） |
 | `Sources/Kinko/PDF/` | PDF を見る画面（`PDFViewer`、PDFKit。見るだけで書き換えない） |
 | `Sources/Kinko/TextEditors/` | スペルチェックなどを切ったテキストエディタ（`PlainTextEditor`）、ライブプレビューの Markdown エディタ（`MarkdownEditor`、見た目は `MarkdownStyle`、背景の描画は `MarkdownLayoutManager`） |
 | `Sources/Kinko/Sheet/` | 表のエディタ。状態と操作（`SheetEditorModel` と `+Format` `+Editing` `+Clipboard`）、SwiftUI の外枠（`SheetEditor` `FormatBar` `BorderPanel`）、AppKit のグリッド（`SheetGridView`、座標は `SheetGeometry`、セルは `SheetCellsView` と `+Drawing`、見出しは `SheetHeaderViews`、右クリックは `SheetMenus`） |
@@ -181,7 +185,7 @@ SwiftPM はバイナリに SDK バージョンとして最小対応 OS（14.0）
 そのままだと macOS が古い SDK のアプリとみなし、旧来の見た目の互換モードで表示する。
 `scripts/build-app.sh` は `vtool` で実際の SDK バージョンに書き直している。`swift run` で直接起動したときは互換モードの見た目になる。
 
-## 守れるもの・守れないもの（v0.13 時点）
+## 守れるもの・守れないもの（v0.14 時点）
 
 守れる：PC やストレージの盗難、バックアップや同期からの流出、ファイルの改ざん検知。
 
@@ -195,7 +199,7 @@ SwiftPM はバイナリに SDK バージョンとして最小対応 OS（14.0）
 
 ## ロードマップ
 
-1. ✅ ファイル形式と暗号化コア、フォルダ構造のワークスペース、Markdown エディタ、表計算（書式・罫線・折り返し・並べ替え・検索）と .xlsx・CSV の読み書き、設定画面と失敗回数での削除、PDF の表示（テスト 191 件。Given / When / Then で書き、入力と期待値の対応は引数つきのテストにまとめている）
+1. ✅ ファイル形式と暗号化コア、フォルダ構造のワークスペース、Markdown エディタ、表計算（書式・罫線・折り返し・並べ替え・検索）と .xlsx・CSV の読み書き、設定画面と失敗回数での削除、PDF の表示、DMG での配布とアップデートの確認（テスト 197 件。Given / When / Then で書き、入力と期待値の対応は引数つきのテストにまとめている）
 2. ✅ Argon2id による鍵導出（M2 で 1 回 0.43 秒）
 3. ✅ Secure Enclave によるこの Mac 専用の金庫と復旧コード、Touch ID、鍵の破棄による消去（複数の Mac への対応はまだ）
 4. 自動ロック・クリップボード消去などの編集時の守り

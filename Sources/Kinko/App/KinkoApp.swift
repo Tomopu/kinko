@@ -3,6 +3,7 @@ import SwiftUI
 @main
 struct KinkoApp: App {
   @State private var session = VaultSession()
+  @State private var updates = UpdateChecker()
 
   init() {
     #if DEBUG
@@ -19,6 +20,9 @@ struct KinkoApp: App {
     .defaultSize(width: ContentView.lockSize.width, height: ContentView.lockSize.height)
     .windowResizability(.contentSize)
     .commands {
+      CommandGroup(after: .appInfo) {
+        CheckForUpdatesButton(checker: updates)
+      }
       CommandGroup(replacing: .newItem) {
         Button("新規ファイル…") { NotificationCenter.default.post(name: .kinkoNewFile, object: nil) }
           .keyboardShortcut("n")
@@ -48,6 +52,12 @@ struct KinkoApp: App {
         ChangePasswordMenuButton(isEnabled: isEditing)
       }
     }
+
+    Window("アップデート", id: "update") {
+      UpdateView()
+        .environment(updates)
+    }
+    .windowResizability(.contentSize)
 
     Settings {
       SettingsView()
