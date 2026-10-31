@@ -50,7 +50,7 @@ struct PasswordChangeTests {
     let oldKey = old.dataKey.withUnsafeBytes { Data($0) }
     let newKey = changed.dataKey.withUnsafeBytes { Data($0) }
     #expect(oldKey != newKey)
-    #expect(old.envelope.salt != changed.envelope.salt)
+    #expect(old.salt != changed.salt)
 
     // Then: 古いデータ鍵では、新しい金庫で暗号化した本文を開けない
     let body = file.dropFirst(VaultFile.headerLength)
