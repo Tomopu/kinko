@@ -14,6 +14,22 @@ swift run Kinko --snapshot docs/figure/ui   # 開発用：主な画面を PNG �
 
 自分の Mac で使うだけなら、Apple Developer Program の証明書も、署名の期限もない。
 
+## 配布（DMG）
+
+```bash
+./scripts/make-dmg.sh      # build/Kinko-<版>.dmg を作る。最後に SHA-256 を出す
+```
+
+- 開くと Kinko とアプリケーションフォルダが並び、ドラッグで入れる形。GitHub のリリースに添付して配る
+- 初回は Finder でアイコンを並べるため「Finder を制御する許可」を求められる。断っても DMG はできる（並べ方だけ省く。`DMG_LAYOUT=0` で最初から省ける）
+- 署名は ad-hoc のまま。使える期限はない（7 日で切れるのは iPhone の無料の署名の話）。ただし公証していないので、ダウンロードした人は最初の 1 回だけ macOS に止められる。開き方は DMG の「はじめにお読みください.txt」に書いてある
+  1. アプリケーションフォルダの Kinko をダブルクリックする（止められる）
+  2. 「システム設定 > プライバシーとセキュリティ」の下のほうの「このまま開く」を押す
+  3. 次からはふつうに開ける（ターミナルなら `xattr -dr com.apple.quarantine /Applications/Kinko.app` でも同じ）
+- この Mac 専用の金庫・Touch ID は、キーチェーンを使わない作りなので ad-hoc 署名でも動く
+- Apple Developer Program に入ったら、`SIGN_IDENTITY="Developer ID Application: …"` と `NOTARY_PROFILE=<notarytool store-credentials で保存した名前>` を付けて実行すると、Developer ID で署名し、公証と staple まで行う（受け取った人はダブルクリックだけで開ける）
+- 配るときは SHA-256 もリリースに書いておくと、受け取った人が改ざんされていないか確かめられる（`shasum -a 256 Kinko-<版>.dmg`）
+
 ## 構成
 
 | 場所 | 役割 |
