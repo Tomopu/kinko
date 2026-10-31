@@ -114,8 +114,8 @@ enum Snapshot {
     _ contentView: NSView, size: CGSize, appearance: NSAppearance.Name, to url: URL,
     interact: @MainActor (NSWindow) -> Void = { _ in }
   ) {
-    let window = NSWindow(
-      contentRect: NSRect(origin: CGPoint(x: 80, y: 80), size: size),
+    let window = OffscreenWindow(
+      contentRect: NSRect(origin: OffscreenWindow.origin, size: size),
       styleMask: [.titled, .closable, .miniaturizable, .resizable, .fullSizeContentView],
       backing: .buffered, defer: false)
     window.appearance = NSAppearance(named: appearance)
@@ -135,6 +135,25 @@ enum Snapshot {
     let rep = view.bitmapImageRepForCachingDisplay(in: view.bounds)!
     view.cacheDisplay(in: view.bounds, to: rep)
     try? rep.representation(using: .png, properties: [:])?.write(to: url)
+  }
+
+  /// 撮影用のウィンドウ。どの画面からも外れた場所に置き、使っている人の作業の前に出てこないようにする。
+  /// 自分のウィンドウはウィンドウサーバから撮るので、画面の外にあっても描ける
+  final class OffscreenWindow: NSWindow {
+    static let origin = CGPoint(x: -30000, y: -30000)
+    private var pretendsZoomed = false
+
+    /// ふつうは画面の中へ引き戻されるので、置いた場所のままにする
+    override func constrainFrameRect(_ frameRect: NSRect, to screen: NSScreen?) -> NSRect { frameRect }
+
+    /// 最大化は画面の中へ動かしてしまうので、画面いっぱいの大きさにするだけで、場所は画面の外のままにする
+    override func zoom(_ sender: Any?) {
+      pretendsZoomed = true
+      let size = (NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 860)).size
+      setFrame(NSRect(origin: Self.origin, size: size), display: true)
+    }
+
+    override var isZoomed: Bool { pretendsZoomed || super.isZoomed }
   }
 
   static func findView<T: NSView>(_ type: T.Type, in view: NSView?) -> T? {

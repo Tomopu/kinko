@@ -55,8 +55,8 @@ extension Snapshot {
   /// 最大化・全画面のときにウィンドウを動かさないこと、普段は編集画面で広げてロックで戻すことを確かめる
   static func checkWindowSizing(url: URL, workspace: Workspace, directory: URL) {
     func makeWindow(_ session: VaultSession) -> NSWindow {
-      let window = NSWindow(
-        contentRect: NSRect(origin: CGPoint(x: 80, y: 80), size: ContentView.lockSize),
+      let window = OffscreenWindow(
+        contentRect: NSRect(origin: OffscreenWindow.origin, size: ContentView.lockSize),
         styleMask: [.titled, .closable, .miniaturizable, .resizable], backing: .buffered, defer: false)
       window.contentView = NSHostingView(rootView: ContentView().environment(session))
       window.orderFrontRegardless()
