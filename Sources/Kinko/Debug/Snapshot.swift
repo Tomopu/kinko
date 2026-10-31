@@ -80,6 +80,7 @@ enum Snapshot {
     checkWindowSizing(url: url, workspace: workspace, directory: directory)
     checkSheet(url: url, directory: directory)
     checkPasswordChange(directory: directory)
+    checkEraseAfterFailures(directory: directory)
     exit(0)
   }
 

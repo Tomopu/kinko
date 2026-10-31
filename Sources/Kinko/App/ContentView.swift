@@ -93,6 +93,11 @@ private struct StartView: View {
         .foregroundStyle(.secondary)
         .multilineTextAlignment(.center)
         .fixedSize(horizontal: false, vertical: true)
+      if let notice = session.notice {
+        Label(notice, systemImage: "trash")
+          .foregroundStyle(.red)
+          .fixedSize(horizontal: false, vertical: true)
+      }
       HStack {
         Button("新しい金庫を作る…") { session.chooseNewFile() }
         Button("金庫を開く…") { session.chooseExistingFile() }
@@ -127,6 +132,14 @@ private struct PasswordView: View {
       }
       if let message = session.errorMessage {
         Text(message).foregroundStyle(.red)
+      }
+      if !isCreating, let remaining = session.remainingBeforeErase {
+        Label(
+          remaining == 1 ? "次に間違えると、この金庫は削除されます。" : "あと \(remaining) 回間違えると、この金庫は削除されます。",
+          systemImage: "exclamationmark.triangle.fill"
+        )
+        .foregroundStyle(.orange)
+        .fixedSize(horizontal: false, vertical: true)
       }
 
       HStack {

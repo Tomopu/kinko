@@ -18,14 +18,15 @@ swift run Kinko --snapshot docs/figure/ui   # 開発用：主な画面を PNG �
 
 | 場所 | 役割 |
 |---|---|
-| `Sources/KinkoCore/Vault/` | 金庫の暗号：パスワード → 鍵（`KeyDerivation`、Argon2id）、鍵の 2 段構成と AES-256-GCM（`Vault`）、`.kinko` ファイル形式（`VaultFile`、形式の図はこのファイルの先頭）、新しい金庫のパスワードの規則（`PasswordPolicy`） |
+| `Sources/KinkoCore/Vault/` | 金庫の暗号：パスワード → 鍵（`KeyDerivation`、Argon2id）、鍵の 2 段構成と AES-256-GCM（`Vault`）、`.kinko` ファイル形式（`VaultFile`、形式の図はこのファイルの先頭）、新しい金庫のパスワードの規則（`PasswordPolicy`）、続けて間違えた回数（`UnlockAttempts`） |
 | `Sources/KinkoCore/Workspace/` | 金庫の中身（フォルダとファイルの木）とその操作（`Workspace`）、金庫の外のファイル・フォルダとの読み込みと書き出し（`FileTransfer`） |
 | `Sources/KinkoCore/Markdown/` | リストの続け方と「[]」の近道（`MarkdownLists`）、見出し・太字・記号の位置（`MarkdownSpans`、swift-markdown） |
 | `Sources/KinkoCore/Sheet/` | 表の型（`CellAddress` `Sheet` `CellValue` `CellStyle` `NumberFormat`。セルには入力どおりの文字列を持ち、計算結果は持たない）、行・列・セルの挿入と削除と並べ替え（`SheetEdit`）、つまみでの複製（`SheetFill`） |
 | `Sources/KinkoCore/Formula/` | 数式の字句解析・構文解析（`Formula` `FormulaLexer` `FormulaParser`）と計算（`Calculator`、関数は `Calculator+Functions`。Excel と同じ優先順位・型の変換） |
 | `Sources/KinkoCore/FileFormats/` | .xlsx・CSV の読み書き。ZIP（`Zip`）と XML（`XMLScanner`）も自前で解析し、上限つき。.xlsx は書き出し（`XLSX`）、文字列と数式（`XLSX+Text`）、日付（`XLSX+Dates`）、書式（`XLSX+Styles`）、読み込み（`XLSXReader`）に分けている |
 | `Sources/Kinko/App/` | アプリの入口とメニュー（`KinkoApp`）、画面の切り替えとウィンドウの大きさ（`ContentView`） |
-| `Sources/Kinko/Vault/` | 金庫を開いている間の状態（`VaultSession`）、目のボタンつきのパスワード欄（`PasswordField`）、パスワードの変更（`ChangePasswordView`） |
+| `Sources/Kinko/Vault/` | 金庫を開いている間の状態（`VaultSession`。失敗回数での削除もここ）、目のボタンつきのパスワード欄（`PasswordField`） |
+| `Sources/Kinko/Settings/` | 設定画面（`SettingsView`。セキュリティとパスワードのタブ）、パスワードの変更（`ChangePasswordForm`） |
 | `Sources/Kinko/Workspace/` | サイドバーつきの編集画面（`WorkspaceView`）、ドラッグで運ぶ項目（`ItemReference`） |
 | `Sources/Kinko/TextEditors/` | スペルチェックなどを切ったテキストエディタ（`PlainTextEditor`）、ライブプレビューの Markdown エディタ（`MarkdownEditor`、見た目は `MarkdownStyle`、背景の描画は `MarkdownLayoutManager`） |
 | `Sources/Kinko/Sheet/` | 表のエディタ。状態と操作（`SheetEditorModel` と `+Format` `+Editing` `+Clipboard`）、SwiftUI の外枠（`SheetEditor` `FormatBar` `BorderPanel`）、AppKit のグリッド（`SheetGridView`、座標は `SheetGeometry`、セルは `SheetCellsView` と `+Drawing`、見出しは `SheetHeaderViews`、右クリックは `SheetMenus`） |
@@ -39,8 +40,16 @@ swift run Kinko --snapshot docs/figure/ui   # 開発用：主な画面を PNG �
 - 使えるのは半角の英数字・記号・空白だけ。パスワード欄では日本語入力を止め、英字入力に固定する（目のボタンで表示している間も）
 - 理由：日本語入力（IME）は打った文字を変換候補として画面に出し、学習データとして保存するので、パスワードがそこから漏れる。全角・半角の揺れで、別の Mac で開けなくなることもある
 - 強さは文字の種類ではなく、長さと選び方のランダムさで決まる。ランダムに選んだ単語を 4〜5 個つなげたパスフレーズ（ローマ字でよい）が覚えやすく強い
-- 変更はメニューの「ファイル > パスワードを変更…」。今のパスワードの確認が必要（開いたまま席を離れた間に乗っ取られるのを防ぐ）
+- 変更は設定画面（⌘,）の「パスワード」タブ。メニューの「ファイル > パスワードを変更…」からも開ける。今のパスワードの確認が必要（開いたまま席を離れた間に乗っ取られるのを防ぐ）
 - 変更するとデータ鍵と salt も新しくし、金庫全体を暗号化し直す。古いパスワードが漏れていても、以前のファイルのコピーから取り出したデータ鍵で新しいファイルを読まれないようにするため。ただし Time Machine などに残った以前のコピーは古いパスワードのまま
+
+## 失敗回数での削除
+
+- 設定画面の「セキュリティ」タブで、パスワードを 5・10・20 回続けて間違えたら金庫のファイルを削除するようにできる（初期設定は削除しない。有効にするときは確認を出す）
+- 開く画面では、間違えるたびに「あと何回で削除されるか」を出す。正しいパスワードで開けたら数え直す
+- 削除はゴミ箱を通さない（ゴミ箱から戻して試し続けられないように）
+- 数えるのは、この Mac の Kinko で開こうとしたときだけ。回数は金庫ごとに、アプリの設定（UserDefaults）に置く。金庫の見分けにはヘッダの salt を使う（秘密ではなく、保存し直しても変わらない）
+- 限界：ファイルをコピーして別の道具で総当たりされると効かない。Time Machine などのバックアップに残ったコピーも消えない。手元の Mac での当て推量への備えであり、総当たりへの備えは長いパスワードと Argon2id の重さ
 
 ## 鍵の構成
 
@@ -116,21 +125,21 @@ SwiftPM はバイナリに SDK バージョンとして最小対応 OS（14.0）
 そのままだと macOS が古い SDK のアプリとみなし、旧来の見た目の互換モードで表示する。
 `scripts/build-app.sh` は `vtool` で実際の SDK バージョンに書き直している。`swift run` で直接起動したときは互換モードの見た目になる。
 
-## 守れるもの・守れないもの（v0.9 時点）
+## 守れるもの・守れないもの（v0.10 時点）
 
 守れる：PC やストレージの盗難、バックアップや同期からの流出、ファイルの改ざん検知。
 
 まだ守れない・未対応：
 - 編集中のマルウェア（メモリ・画面・キー入力）
 - メモリ上の平文の消去（Swift の `String` は確実にゼロ化できない）
-- 失敗回数の制限（オフライン総当たりには効かないので、ハードウェア鍵と組み合わせて実装する予定）
+- ファイルをコピーしてのオフライン総当たり（失敗回数での削除は、この Mac の Kinko で開いたときだけ効く。ハードウェア鍵と組み合わせれば、コピーしたファイルだけでは試せなくできる）
 - 書き出したファイルや読み込み元のファイル（平文のまま残る）
 - 自動ロック、クリップボードの消去、未保存のままウィンドウやアプリを閉じたときの確認（ロック時の確認はある）
 - パスワードを「表示」にしている間は Secure Event Input が外れ、キーロガーに対して弱くなる
 
 ## ロードマップ
 
-1. ✅ ファイル形式と暗号化コア、フォルダ構造のワークスペース、Markdown エディタ、表計算（書式・罫線・折り返し・並べ替え・検索）と .xlsx・CSV の読み書き（テスト 166 件。Given / When / Then で書き、入力と期待値の対応は引数つきのテストにまとめている）
+1. ✅ ファイル形式と暗号化コア、フォルダ構造のワークスペース、Markdown エディタ、表計算（書式・罫線・折り返し・並べ替え・検索）と .xlsx・CSV の読み書き、設定画面と失敗回数での削除（テスト 172 件。Given / When / Then で書き、入力と期待値の対応は引数つきのテストにまとめている）
 2. ✅ Argon2id による鍵導出（M2 で 1 回 0.43 秒）
 3. Secure Enclave と Touch ID、鍵の破棄による消去
 4. 自動ロック・クリップボード消去などの編集時の守り

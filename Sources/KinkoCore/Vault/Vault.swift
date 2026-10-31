@@ -76,6 +76,19 @@ public struct UnlockedVault: Sendable {
     return (UnlockedVault(envelope: envelope, dataKey: dataKey), plaintext)
   }
 
+  /// 金庫を見分ける印（ヘッダの salt を 16 進にしたもの）。保存し直しても変わらず、パスワードを変えると変わる。
+  /// 秘密ではない（ファイルの先頭にそのまま書いてある）
+  public var identifier: String { Self.identifier(of: envelope) }
+
+  /// 開く前のファイルから、金庫を見分ける印を読む
+  public static func identifier(ofFile file: Data) throws -> String {
+    identifier(of: try VaultFile.parse(file).envelope)
+  }
+
+  private static func identifier(of envelope: KeyEnvelope) -> String {
+    envelope.salt.map { String(format: "%02x", $0) }.joined()
+  }
+
   /// パスワードが正しいか確かめる。ヘッダの salt とパラメータで鍵を作り直し、データ鍵を取り出せるかを見る
   public func verifies(password: String) -> Bool {
     guard

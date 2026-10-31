@@ -59,10 +59,6 @@ struct WorkspaceView: View {
     .onReceive(NotificationCenter.default.publisher(for: .kinkoNewFolder)) { _ in promptNewFolder() }
     .onReceive(NotificationCenter.default.publisher(for: .kinkoNewSheet)) { _ in promptNewSheet() }
     .onReceive(NotificationCenter.default.publisher(for: .kinkoLock)) { _ in requestLock() }
-    .onReceive(NotificationCenter.default.publisher(for: .kinkoChangePassword)) { _ in session.beginPasswordChange() }
-    .sheet(isPresented: $session.isChangingPassword) {
-      ChangePasswordView().environment(session)
-    }
   }
 
   // MARK: - サイドバー
@@ -309,7 +305,6 @@ extension Notification.Name {
   static let kinkoNewFolder = Notification.Name("kinkoNewFolder")
   static let kinkoNewSheet = Notification.Name("kinkoNewSheet")
   static let kinkoLock = Notification.Name("kinkoLock")
-  static let kinkoChangePassword = Notification.Name("kinkoChangePassword")
 }
 
 extension WorkspaceItem {

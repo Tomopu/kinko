@@ -115,10 +115,52 @@ extension Snapshot {
     let rejectsOld = (try? UnlockedVault.open(data, password: "old passphrase 1")) == nil
     print("snapshot: wrongCurrentRejected=\(rejectedWrongCurrent) opensWithNew=\(opensWithNew) rejectsOld=\(rejectsOld)")
 
-    renderView(ChangePasswordView().environment(VaultSession()), appearance: .aqua, to: directory.appending(path: "change-password.png"))
+    UserDefaults.standard.set(SettingsView.Tab.password.rawValue, forKey: SettingsView.tabKey)
+    renderView(SettingsView().environment(session), appearance: .aqua, to: directory.appending(path: "settings-password.png"))
+    UserDefaults.standard.set(SettingsView.Tab.security.rawValue, forKey: SettingsView.tabKey)
+    renderView(SettingsView().environment(session), appearance: .aqua, to: directory.appending(path: "settings-security.png"))
     let unlocking = VaultSession()
     unlocking.preview(phase: .unlocking(file))
     render(unlocking, size: ContentView.lockSize, appearance: .aqua, to: directory.appending(path: "unlock-light.png"))
+  }
+
+  /// パスワードを決めた回数だけ続けて間違えると、金庫のファイルが消えることを実際のファイルで確かめる。
+  /// 回数の記録は、本物の設定を汚さないよう使い捨ての UserDefaults に置く
+  static func checkEraseAfterFailures(directory: URL) {
+    let folder = directory.appending(path: "tmp-erase")
+    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let suite = "kinko-snapshot-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+
+    let file = folder.appending(path: "消える.kinko")
+    let session = VaultSession(defaults: defaults)
+    wait { await session.create(at: file, password: "right passphrase", confirmation: "right passphrase") }
+    session.lock()
+    session.eraseLimit = 5
+
+    // 2 回間違えてから正しく開くと数え直す
+    session.beginUnlocking(file)
+    for _ in 1...2 { wait { await session.unlock(at: file, password: "wrong passphrase") } }
+    let warnedAfterTwo = session.remainingBeforeErase == 3
+    wait { await session.unlock(at: file, password: "right passphrase") }
+    session.lock()
+    session.beginUnlocking(file)
+    let resetAfterSuccess = session.remainingBeforeErase == nil
+
+    // 続けて 4 回間違えると「次で削除」、5 回目で消える
+    for _ in 1...4 { wait { await session.unlock(at: file, password: "wrong passphrase") } }
+    let warnedLast = session.remainingBeforeErase == 1
+    render(session, size: ContentView.lockSize, appearance: .aqua, to: directory.appending(path: "unlock-warning.png"))
+    let existedBefore = FileManager.default.fileExists(atPath: file.path)
+    wait { await session.unlock(at: file, password: "wrong passphrase") }
+    let erased = existedBefore && !FileManager.default.fileExists(atPath: file.path) && session.phase == .start
+    render(session, size: ContentView.lockSize, appearance: .aqua, to: directory.appending(path: "start-erased.png"))
+
+    // 設定は次に開いたときも残っている
+    let remembered = VaultSession(defaults: defaults).eraseLimit == 5
+    print("snapshot: erase warnedAfterTwo=\(warnedAfterTwo) resetAfterSuccess=\(resetAfterSuccess) warnedLast=\(warnedLast) erased=\(erased) notice=\(session.notice ?? "-") remembered=\(remembered)")
   }
 }
 #endif

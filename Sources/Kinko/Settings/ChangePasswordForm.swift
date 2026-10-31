@@ -1,8 +1,8 @@
 import KinkoCore
 import SwiftUI
 
-/// パスワードを変えるシート
-struct ChangePasswordView: View {
+/// 設定画面の、パスワードを変えるフォーム。開いている金庫のパスワードを変える
+struct ChangePasswordForm: View {
   @Environment(VaultSession.self) private var session
 
   @State private var current = ""
@@ -11,7 +11,6 @@ struct ChangePasswordView: View {
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
-      Text("パスワードを変更").font(.title2.bold())
       PasswordField(title: "今のパスワード", text: $current)
       PasswordField(title: "新しいパスワード", text: $new)
       PasswordField(title: "確認のためもう一度", text: $confirmation)
@@ -21,11 +20,11 @@ struct ChangePasswordView: View {
         .fixedSize(horizontal: false, vertical: true)
       if let message = session.passwordChangeError {
         Text(message).foregroundStyle(.red)
+      } else if session.passwordChanged {
+        Label("パスワードを変更しました。", systemImage: "checkmark.circle.fill").foregroundStyle(.green)
       }
 
       HStack {
-        Button("キャンセル") { session.isChangingPassword = false }
-          .keyboardShortcut(.cancelAction)
         Spacer()
         if session.isBusy { ProgressView().controlSize(.small) }
         Button("変更", action: submit)
@@ -33,8 +32,6 @@ struct ChangePasswordView: View {
           .disabled(session.isBusy || new.isEmpty || current.isEmpty)
       }
     }
-    .padding(24)
-    .frame(width: 400)
     .onSubmit(submit)
   }
 

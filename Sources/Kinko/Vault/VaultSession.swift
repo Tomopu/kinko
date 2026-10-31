@@ -21,12 +21,30 @@ final class VaultSession {
   private(set) var isDirty = false
   private(set) var isBusy = false
   var errorMessage: String?
+  /// 最初の画面に出す知らせ（パスワードを間違え続けて金庫を消したときなど）
+  private(set) var notice: String?
 
-  /// パスワード変更の画面を出している
-  var isChangingPassword = false
+  /// パスワードの変更の結果（設定画面に出す）
   var passwordChangeError: String?
+  private(set) var passwordChanged = false
+
+  /// パスワードを何回続けて間違えたら金庫のファイルを消すか。nil なら消さない
+  var eraseLimit: Int? {
+    didSet { defaults.set(eraseLimit ?? 0, forKey: Self.eraseLimitKey) }
+  }
+  /// 開こうとしている金庫を、あと何回間違えると消すか（消さない設定か、まだ間違えていなければ nil）
+  private(set) var remainingBeforeErase: Int?
 
   private var vault: UnlockedVault?
+  private let defaults: UserDefaults
+  private static let eraseLimitKey = "eraseAfterFailedUnlocks"
+  private static let attemptsKey = "unlockAttempts"
+
+  init(defaults: UserDefaults = .standard) {
+    self.defaults = defaults
+    let limit = defaults.integer(forKey: Self.eraseLimitKey)
+    eraseLimit = limit > 0 ? limit : nil
+  }
 
   func chooseNewFile() {
     let panel = NSSavePanel()
@@ -34,6 +52,7 @@ final class VaultSession {
     panel.nameFieldStringValue = "金庫.kinko"
     guard panel.runModal() == .OK, let url = panel.url else { return }
     errorMessage = nil
+    notice = nil
     phase = .creating(url)
   }
 
@@ -42,7 +61,16 @@ final class VaultSession {
     panel.allowedContentTypes = [Self.fileType]
     panel.allowsMultipleSelection = false
     guard panel.runModal() == .OK, let url = panel.url else { return }
+    beginUnlocking(url)
+  }
+
+  func beginUnlocking(_ url: URL) {
     errorMessage = nil
+    notice = nil
+    remainingBeforeErase = (try? Data(contentsOf: url)).flatMap { file in
+      guard let id = try? UnlockedVault.identifier(ofFile: file), attempts.failures(of: id) > 0 else { return nil }
+      return attempts.remaining(of: id, limit: eraseLimit)
+    }
     phase = .unlocking(url)
   }
 
@@ -66,11 +94,54 @@ final class VaultSession {
     }
   }
 
+  /// 開く。パスワードの間違いを数え、決めた回数に達したら金庫のファイルを消す
   func unlock(at url: URL, password: String) async {
-    await run {
+    isBusy = true
+    defer { isBusy = false }
+    do {
       let file = try Data(contentsOf: url)
-      let (vault, plaintext) = try await Task.detached { try UnlockedVault.open(file, password: password) }.value
-      self.enterEditing(url: url, vault: vault, workspace: try Workspace.decode(plaintext))
+      let id = try UnlockedVault.identifier(ofFile: file)
+      do {
+        let (vault, plaintext) = try await Task.detached { try UnlockedVault.open(file, password: password) }.value
+        updateAttempts { $0.recordSuccess(of: id) }
+        enterEditing(url: url, vault: vault, workspace: try Workspace.decode(plaintext))
+      } catch VaultError.authenticationFailed {
+        switch updateAttempts({ $0.recordFailure(of: id, limit: eraseLimit) }) {
+        case .retry(let remaining):
+          remainingBeforeErase = remaining
+          errorMessage = VaultError.authenticationFailed.localizedDescription
+        case .erase:
+          erase(url)
+        }
+      }
+    } catch {
+      errorMessage = error.localizedDescription
+    }
+  }
+
+  /// 続けて間違えた回数の記録。金庫ごとに、この Mac の設定に置く
+  private var attempts: UnlockAttempts {
+    get { defaults.data(forKey: Self.attemptsKey).flatMap { try? JSONDecoder().decode(UnlockAttempts.self, from: $0) } ?? UnlockAttempts() }
+    set { defaults.set(try? JSONEncoder().encode(newValue), forKey: Self.attemptsKey) }
+  }
+
+  private func updateAttempts<T>(_ change: (inout UnlockAttempts) -> T) -> T {
+    var attempts = attempts
+    defer { self.attempts = attempts }
+    return change(&attempts)
+  }
+
+  /// パスワードを間違え続けた金庫のファイルを消して、最初の画面に戻る。
+  /// ゴミ箱には入れない（ゴミ箱から戻して試し続けられるので）
+  private func erase(_ url: URL) {
+    do {
+      try FileManager.default.removeItem(at: url)
+      notice = "パスワードを \(eraseLimit ?? 0) 回続けて間違えたため、「\(url.lastPathComponent)」を削除しました。"
+      errorMessage = nil
+      remainingBeforeErase = nil
+      phase = .start
+    } catch {
+      errorMessage = "パスワードを続けて間違えたので削除しようとしましたが、できませんでした。\(error.localizedDescription)"
     }
   }
 
@@ -87,15 +158,10 @@ final class VaultSession {
 
   // MARK: - パスワードの変更
 
-  func beginPasswordChange() {
-    guard case .editing = phase else { return }
-    passwordChangeError = nil
-    isChangingPassword = true
-  }
-
   /// パスワードを変えて、金庫全体を新しい鍵で暗号化し直して保存する（編集中の内容も一緒に保存される）
   func changePassword(current: String, new: String, confirmation: String) async {
     guard case .editing(let url) = phase, let vault else { return }
+    passwordChanged = false
     do {
       try PasswordPolicy.validate(new)
     } catch {
@@ -119,8 +185,8 @@ final class VaultSession {
       try changed.seal(workspace.encoded()).write(to: url, options: .atomic)
       self.vault = changed
       isDirty = false
-      isChangingPassword = false
       passwordChangeError = nil
+      passwordChanged = true
     } catch {
       passwordChangeError = error.localizedDescription
     }
@@ -277,7 +343,8 @@ final class VaultSession {
   /// 鍵と平文を手放して最初の画面に戻る。保存していない変更は捨てる
   func lock() {
     vault = nil
-    isChangingPassword = false
+    passwordChangeError = nil
+    passwordChanged = false
     workspace = Workspace()
     selection = nil
     isDirty = false
@@ -287,6 +354,7 @@ final class VaultSession {
 
   func cancel() {
     errorMessage = nil
+    remainingBeforeErase = nil
     phase = .start
   }
 

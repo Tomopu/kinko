@@ -45,9 +45,13 @@ struct KinkoApp: App {
           .keyboardShortcut("l")
           .disabled(!isEditing)
         Divider()
-        Button("パスワードを変更…") { NotificationCenter.default.post(name: .kinkoChangePassword, object: nil) }
-          .disabled(!isEditing)
+        ChangePasswordMenuButton(isEnabled: isEditing)
       }
+    }
+
+    Settings {
+      SettingsView()
+        .environment(session)
     }
   }
 
