@@ -44,6 +44,19 @@ extension Snapshot {
       let stepped = model.style(at: CellAddress("B2")!).fontSize == 14
       model.setFontSize(11)
       let reset = model.style(at: CellAddress("B2")!).fontSize == nil
+      // 折り返しの 3 つの見せ方と、取り消し・やり直し
+      model.select(range: CellRange(CellAddress("A2")!), active: CellAddress("A2")!)
+      model.setInput("旅行の計画（行き先と日程と予算）", at: CellAddress("A2")!)
+      model.setOverflow(.clip)
+      let clipped = model.activeOverflow == .clip && !model.style(at: CellAddress("A2")!).wraps
+      model.setOverflow(.wrap)
+      let wrapped = model.activeOverflow == .wrap && !model.style(at: CellAddress("A2")!).clips
+      model.undo()
+      let undone = model.activeOverflow == .clip
+      model.redo()
+      let redone = model.activeOverflow == .wrap
+      model.setOverflow(.clip)
+      print("snapshot: overflow clipped=\(clipped) wrapped=\(wrapped) undone=\(undone) redone=\(redone)")
       // .xlsx に書き出して読み戻しても、フォントが残る
       let back = (try? XLSX.read(XLSX.write(model.workbook) { _, _ in .empty }))?.sheets[0]
       let roundTrip = back?[style: CellAddress("A1")!].fontName == "Hiragino Mincho ProN" && back?[style: CellAddress("A1")!].fontSize == 18
@@ -64,6 +77,15 @@ extension Snapshot {
     }
 
     renderView(HoverLabelView(text: "新規ファイル（⌘N）"), appearance: .aqua, to: directory.appending(path: "hover-label.png"))
+    renderView(
+      VStack(spacing: 8) {
+        OptionPalette(options: SheetEditorModel.TextOverflow.allCases, selected: .wrap, name: \.title, icon: { OverflowIcon(overflow: $0) }) { _ in }
+        OptionPalette(options: [KinkoCore.VerticalAlignment.top, .center, .bottom], selected: .center, name: \.rawValue, icon: {
+          Image(systemName: FormatBar.verticalSymbol($0))
+        }) { _ in }
+      }
+      .padding(10).background(Color(nsColor: .windowBackgroundColor)),
+      appearance: .aqua, to: directory.appending(path: "option-palettes.png"))
     for (protection, name) in [(UnlockedVault.Protection?.none, "comparison"), (.deviceBound, "comparison-device")] {
       renderView(
         ProtectionComparison(current: protection).padding(16).frame(width: 460).background(Color(nsColor: .windowBackgroundColor)),

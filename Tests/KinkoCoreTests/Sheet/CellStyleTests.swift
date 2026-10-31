@@ -74,6 +74,7 @@ struct CellStyleTests {
       $0.borders = CellBorders(top: BorderLine(style: .double, color: color("C00000")), bottom: .thin)
       $0.fontName = "Hiragino Mincho ProN"
       $0.fontSize = 10.5
+      $0.clips = true
     }
     sheet[style: "C3"] = CellStyle()
 

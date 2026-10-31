@@ -254,8 +254,8 @@ extension SheetCellsView {
     // 数は切れると読み違えるので、Excel と同じく ### にする
     var shown = text
     if case .number = value, width > rect.width { shown = String(repeating: "#", count: max(1, Int(rect.width / 8))) }
-    // 左揃えの文字列は、右隣が空（中身も背景色もない）のあいだ、はみ出して見せる
-    if case .text = value, alignment == .left, width > rect.width {
+    // 左揃えの文字列は、右隣が空（中身も背景色もない）のあいだ、はみ出して見せる（切り詰める書式なら見せない）
+    if case .text = value, alignment == .left, !style.clips, width > rect.width {
       var column = address.column + 1
       while rect.width < width, column <= maxColumn {
         let next = CellAddress(row: address.row, column: column)

@@ -15,6 +15,9 @@ public struct CellStyle: Codable, Hashable, Sendable {
   public var verticalAlignment: VerticalAlignment?
   /// 列の幅で折り返して、複数行で表示する。行の高さは中身に合わせて自動で高くなる
   public var wraps = false
+  /// 折り返さない文字を、右隣が空でもはみ出させずセルの幅で切る（Google スプレッドシートの「切り詰める」）。
+  /// Excel にはない指定なので、.xlsx には書かない
+  public var clips = false
   public var numberFormat: NumberFormat = .general
   /// 罫線。辺ごとに線の種類と色を持つ
   public var borders = CellBorders()
@@ -34,7 +37,7 @@ public struct CellStyle: Codable, Hashable, Sendable {
 
   private enum CodingKeys: String, CodingKey {
     case bold, italic, underline, strikethrough, textColor, fillColor, alignment, verticalAlignment, wraps, numberFormat, borders
-    case fontName, fontSize
+    case fontName, fontSize, clips
   }
 
   /// 既定の値は書かない（JSON を小さく、読みやすくする）
@@ -49,6 +52,7 @@ public struct CellStyle: Codable, Hashable, Sendable {
     try container.encodeIfPresent(alignment, forKey: .alignment)
     try container.encodeIfPresent(verticalAlignment, forKey: .verticalAlignment)
     if wraps { try container.encode(wraps, forKey: .wraps) }
+    if clips { try container.encode(clips, forKey: .clips) }
     if numberFormat != .general { try container.encode(numberFormat, forKey: .numberFormat) }
     if !borders.isEmpty { try container.encode(borders, forKey: .borders) }
     try container.encodeIfPresent(fontName, forKey: .fontName)
@@ -66,6 +70,7 @@ public struct CellStyle: Codable, Hashable, Sendable {
     alignment = try container.decodeIfPresent(HorizontalAlignment.self, forKey: .alignment)
     verticalAlignment = try container.decodeIfPresent(VerticalAlignment.self, forKey: .verticalAlignment)
     wraps = try container.decodeIfPresent(Bool.self, forKey: .wraps) ?? false
+    clips = try container.decodeIfPresent(Bool.self, forKey: .clips) ?? false
     numberFormat = try container.decodeIfPresent(NumberFormat.self, forKey: .numberFormat) ?? .general
     borders = try container.decodeIfPresent(CellBorders.self, forKey: .borders) ?? CellBorders()
     fontName = try container.decodeIfPresent(String.self, forKey: .fontName)

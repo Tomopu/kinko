@@ -18,7 +18,15 @@ struct FormatBar: View {
 
   var body: some View {
     let style = model.activeStyle
-    FlowLayout(spacing: 10, lineSpacing: 4) {
+    // Google スプレッドシートと同じく、まとまりの間に縦線を入れる。折り返した行の端には縦線を出さない
+    FlowLayout(spacing: 6, lineSpacing: 4) {
+      HStack(spacing: 2) {
+        FormatToggle(title: "元に戻す（⌘Z）", symbol: "arrow.uturn.backward", isOn: false) { model.undo() }
+          .disabled(!model.canUndo)
+        FormatToggle(title: "やり直す（⇧⌘Z）", symbol: "arrow.uturn.forward", isOn: false) { model.redo() }
+          .disabled(!model.canRedo)
+      }
+      ToolbarSeparator()
       HStack(spacing: 2) {
         FontFamilyMenu(current: style.fontName) { model.setFontName($0) }
         Menu {
@@ -38,6 +46,7 @@ struct FormatBar: View {
         FormatToggle(title: "文字を大きく", symbol: "textformat.size.larger", isOn: false) { model.stepFontSize(up: true) }
         FormatToggle(title: "文字を小さく", symbol: "textformat.size.smaller", isOn: false) { model.stepFontSize(up: false) }
       }
+      ToolbarSeparator()
       HStack(spacing: 2) {
         FormatToggle(title: "太字（⌘B）", symbol: "bold", isOn: style.bold) { model.toggle(\.bold) }
           .keyboardShortcut("b")
@@ -51,6 +60,9 @@ struct FormatBar: View {
         } label: {
           Text("A").font(.system(size: 13, weight: .semibold))
         }
+      }
+      ToolbarSeparator()
+      HStack(spacing: 2) {
         ColorButton(title: "塗りつぶしの色", current: style.fillColor, palette: Self.fillPalette, noneLabel: "塗りつぶしなし") { color in
           model.applyStyle { $0.fillColor = color }
         } label: {
@@ -59,30 +71,34 @@ struct FormatBar: View {
         Button {
           isEditingBorders = true
         } label: {
-          Image(systemName: "square.dashed").frame(width: 26, height: 22).contentShape(Rectangle())
+          Image(systemName: "squareshape.split.2x2").frame(width: 26, height: 22).contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .hoverLabel("罫線（場所・線の種類・色）")
-        .accessibilityLabel("罫線")
+        .hoverLabel("枠線（場所・線の種類・色）")
+        .accessibilityLabel("枠線")
         .popover(isPresented: $isEditingBorders) { BorderPanel(model: model) }
       }
+      ToolbarSeparator()
       HStack(spacing: 2) {
-        FormatToggle(title: "左揃え", symbol: "text.alignleft", isOn: style.alignment == .left) { model.setAlignment(.left) }
-        FormatToggle(title: "中央揃え", symbol: "text.aligncenter", isOn: style.alignment == .center) { model.setAlignment(.center) }
-        FormatToggle(title: "右揃え", symbol: "text.alignright", isOn: style.alignment == .right) { model.setAlignment(.right) }
-        FormatToggle(title: "上揃え", symbol: "align.vertical.top", isOn: style.verticalAlignment == .top) {
-          model.setVerticalAlignment(.top)
-        }
-        FormatToggle(title: "上下中央揃え", symbol: "align.vertical.center", isOn: style.verticalAlignment == .center) {
-          model.setVerticalAlignment(.center)
-        }
-        FormatToggle(title: "下揃え", symbol: "align.vertical.bottom", isOn: (style.verticalAlignment ?? .bottom) == .bottom) {
-          model.setVerticalAlignment(.bottom)
-        }
-        FormatToggle(title: "折り返して全体を表示する（セルの中の改行は option + Return）", symbol: "text.word.spacing", isOn: style.wraps) {
-          model.toggle(\.wraps)
-        }
+        OptionMenu(
+          title: "水平方向の配置", options: [KinkoCore.HorizontalAlignment.left, .center, .right], selected: style.alignment,
+          name: { ["left": "左揃え", "center": "中央揃え", "right": "右揃え"][$0.rawValue]! }
+        ) { alignment in
+          Image(systemName: "text.align\(alignment?.rawValue ?? "left")")
+        } apply: { model.setAlignment($0) }
+        OptionMenu(
+          title: "垂直方向の配置", options: [KinkoCore.VerticalAlignment.top, .center, .bottom], selected: style.verticalAlignment ?? .bottom,
+          name: { ["top": "上揃え", "center": "上下中央揃え", "bottom": "下揃え"][$0.rawValue]! }
+        ) { alignment in
+          Image(systemName: Self.verticalSymbol(alignment ?? .bottom))
+        } apply: { model.setVerticalAlignment($0) }
+        OptionMenu(
+          title: "テキストの折り返し", options: SheetEditorModel.TextOverflow.allCases, selected: model.activeOverflow, name: \.title
+        ) { overflow in
+          OverflowIcon(overflow: overflow ?? .overflow)
+        } apply: { model.setOverflow($0) }
       }
+      ToolbarSeparator()
       HStack(spacing: 2) {
         Menu {
           Button("標準") { model.setNumberFormat(.general) }
@@ -99,6 +115,7 @@ struct FormatBar: View {
         FormatToggle(title: "小数点以下の桁を増やす", text: "+.0", isOn: false) { model.changeDecimals(by: 1) }
         FormatToggle(title: "小数点以下の桁を減らす", text: "−.0", isOn: false) { model.changeDecimals(by: -1) }
       }
+      ToolbarSeparator()
       HStack(spacing: 2) {
         Menu {
           Button("昇順（小さい順）") { model.sort(ascending: true) }
@@ -114,6 +131,14 @@ struct FormatBar: View {
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 5)
+  }
+
+  static func verticalSymbol(_ alignment: KinkoCore.VerticalAlignment) -> String {
+    switch alignment {
+    case .top: "arrow.up.to.line"
+    case .center: "arrow.down.and.line.horizontal.and.arrow.up"
+    case .bottom: "arrow.down.to.line"
+    }
   }
 
   /// 11 や 10.5
@@ -220,21 +245,50 @@ private struct AllFontsList: View {
   }
 }
 
-/// 子を左から並べ、幅が足りなくなったら次の行へ送る
+/// 書式バーのまとまりの間の縦線。大きさは FlowLayout が決める（行の端に来たときは大きさ 0 にして隠す）
+private struct ToolbarSeparator: View {
+  var body: some View {
+    Rectangle()
+      .fill(Color(nsColor: .separatorColor))
+      .layoutValue(key: IsSeparator.self, value: true)
+  }
+}
+
+private struct IsSeparator: LayoutValueKey {
+  static let defaultValue = false
+}
+
+/// 子を左から並べ、幅が足りなくなったら次の行へ送る。縦線（ToolbarSeparator）は、前後のまとまりが同じ行に並ぶときだけ出す
 private struct FlowLayout: Layout {
   var spacing: CGFloat
   var lineSpacing: CGFloat
 
-  private func rows(for width: CGFloat, subviews: Subviews) -> [[(index: Int, size: CGSize)]] {
-    var rows: [[(index: Int, size: CGSize)]] = [[]]
+  private struct Item {
+    var index: Int
+    var size: CGSize
+    var isSeparator = false
+  }
+
+  private func rows(for width: CGFloat, subviews: Subviews) -> [[Item]] {
+    var rows: [[Item]] = [[]]
     var x: CGFloat = 0
+    var separator: Int?
     for (index, subview) in subviews.enumerated() {
+      if subview[IsSeparator.self] {
+        separator = index
+        continue
+      }
       let size = subview.sizeThatFits(.unspecified)
-      if x > 0, x + size.width > width {
+      let separatorWidth: CGFloat = separator == nil ? 0 : 1 + spacing
+      if x > 0, x + separatorWidth + size.width > width {
         rows.append([])
         x = 0
+      } else if let separator, x > 0 {
+        rows[rows.count - 1].append(Item(index: separator, size: CGSize(width: 1, height: 0), isSeparator: true))
+        x += separatorWidth
       }
-      rows[rows.count - 1].append((index, size))
+      separator = nil
+      rows[rows.count - 1].append(Item(index: index, size: size))
       x += size.width + spacing
     }
     return rows
@@ -249,15 +303,23 @@ private struct FlowLayout: Layout {
   }
 
   func placeSubviews(in bounds: CGRect, proposal: ProposedViewSize, subviews: Subviews, cache: inout ()) {
+    var placed = Set<Int>()
     var y = bounds.minY
     for row in rows(for: bounds.width, subviews: subviews) {
       let height = row.map(\.size.height).max() ?? 0
       var x = bounds.minX
       for item in row {
-        subviews[item.index].place(at: CGPoint(x: x, y: y + (height - item.size.height) / 2), proposal: ProposedViewSize(item.size))
-        x += item.size.width + spacing
+        // 縦線は行の高さより少し短くする
+        let size = item.isSeparator ? CGSize(width: 1, height: max(0, height - 8)) : item.size
+        subviews[item.index].place(at: CGPoint(x: x, y: y + (height - size.height) / 2), proposal: ProposedViewSize(size))
+        placed.insert(item.index)
+        x += size.width + spacing
       }
       y += height + lineSpacing
+    }
+    // 行の端に来て出さない縦線は、大きさ 0 で置く
+    for index in subviews.indices where !placed.contains(index) {
+      subviews[index].place(at: bounds.origin, proposal: .zero)
     }
   }
 }
@@ -300,6 +362,122 @@ private struct FormatToggle: View {
     .buttonStyle(.borderless)
     .hoverLabel(title)
     .accessibilityLabel(title)
+  }
+}
+
+/// 今の選択肢のアイコンと ▾ を出し、押すと選択肢のアイコンを横に並べた小窓を出す（Google スプレッドシートと同じ形）。
+/// selected が nil（標準）のときは、icon に nil を渡したアイコンを出し、どれも選んでいない形にする
+private struct OptionMenu<Option: Hashable, Icon: View>: View {
+  let title: String
+  let options: [Option]
+  let selected: Option?
+  let name: (Option) -> String
+  @ViewBuilder let icon: (Option?) -> Icon
+  let apply: (Option) -> Void
+
+  @State private var isShowing = false
+
+  var body: some View {
+    Button {
+      isShowing = true
+    } label: {
+      HStack(spacing: 2) {
+        icon(selected)
+        Image(systemName: "chevron.down").font(.system(size: 8, weight: .bold)).foregroundStyle(.secondary)
+      }
+      .frame(height: 22)
+      .padding(.horizontal, 4)
+      .background(isShowing ? Color.primary.opacity(0.08) : .clear, in: RoundedRectangle(cornerRadius: 5))
+      .contentShape(Rectangle())
+    }
+    .buttonStyle(.borderless)
+    .hoverLabel(title)
+    .accessibilityLabel(title)
+    .popover(isPresented: $isShowing, arrowEdge: .bottom) {
+      OptionPalette(options: options, selected: selected, name: name, icon: { icon($0) }) { option in
+        apply(option)
+        isShowing = false
+      }
+    }
+  }
+}
+
+/// OptionMenu の小窓の中身。選んでいるものに色を付ける
+struct OptionPalette<Option: Hashable, Icon: View>: View {
+  let options: [Option]
+  let selected: Option?
+  let name: (Option) -> String
+  @ViewBuilder let icon: (Option) -> Icon
+  let apply: (Option) -> Void
+
+  var body: some View {
+    HStack(spacing: 4) {
+      ForEach(options, id: \.self) { option in
+        Button {
+          apply(option)
+        } label: {
+          icon(option)
+            .frame(width: 32, height: 28)
+            .background(option == selected ? Color.accentColor.opacity(0.22) : .clear, in: RoundedRectangle(cornerRadius: 6))
+            .contentShape(Rectangle())
+        }
+        .buttonStyle(.borderless)
+        .hoverLabel(name(option))
+        .accessibilityLabel(name(option))
+      }
+    }
+    .padding(6)
+  }
+}
+
+/// 折り返しの 3 つのアイコン。SF Symbols にちょうどよいものがないので線で描く
+struct OverflowIcon: View {
+  let overflow: SheetEditorModel.TextOverflow
+
+  var body: some View {
+    Canvas { context, size in
+      let w = size.width, h = size.height
+      var lines = Path()
+      var arrow = Path()
+      switch overflow {
+      case .overflow:
+        // セルの右端の線を、矢印が突き抜ける
+        lines.move(to: CGPoint(x: w * 0.2, y: h * 0.15))
+        lines.addLine(to: CGPoint(x: w * 0.2, y: h * 0.85))
+        lines.move(to: CGPoint(x: w * 0.55, y: h * 0.15))
+        lines.addLine(to: CGPoint(x: w * 0.55, y: h * 0.85))
+        arrow.move(to: CGPoint(x: w * 0.3, y: h * 0.5))
+        arrow.addLine(to: CGPoint(x: w * 0.9, y: h * 0.5))
+        arrow.move(to: CGPoint(x: w * 0.75, y: h * 0.35))
+        arrow.addLine(to: CGPoint(x: w * 0.9, y: h * 0.5))
+        arrow.addLine(to: CGPoint(x: w * 0.75, y: h * 0.65))
+      case .wrap:
+        // 右端の線の手前で折り返して、次の行へ戻る
+        lines.move(to: CGPoint(x: w * 0.15, y: h * 0.15))
+        lines.addLine(to: CGPoint(x: w * 0.15, y: h * 0.85))
+        lines.move(to: CGPoint(x: w * 0.85, y: h * 0.15))
+        lines.addLine(to: CGPoint(x: w * 0.85, y: h * 0.85))
+        arrow.move(to: CGPoint(x: w * 0.28, y: h * 0.3))
+        arrow.addLine(to: CGPoint(x: w * 0.55, y: h * 0.3))
+        arrow.addArc(center: CGPoint(x: w * 0.55, y: h * 0.5), radius: h * 0.2, startAngle: .degrees(-90), endAngle: .degrees(90), clockwise: false)
+        arrow.addLine(to: CGPoint(x: w * 0.32, y: h * 0.7))
+        arrow.move(to: CGPoint(x: w * 0.45, y: h * 0.57))
+        arrow.addLine(to: CGPoint(x: w * 0.32, y: h * 0.7))
+        arrow.addLine(to: CGPoint(x: w * 0.45, y: h * 0.83))
+      case .clip:
+        // 両端の線の間で止まる
+        lines.move(to: CGPoint(x: w * 0.15, y: h * 0.15))
+        lines.addLine(to: CGPoint(x: w * 0.15, y: h * 0.85))
+        lines.move(to: CGPoint(x: w * 0.85, y: h * 0.15))
+        lines.addLine(to: CGPoint(x: w * 0.85, y: h * 0.85))
+        arrow.move(to: CGPoint(x: w * 0.15, y: h * 0.5))
+        arrow.addLine(to: CGPoint(x: w * 0.85, y: h * 0.5))
+      }
+      let style = StrokeStyle(lineWidth: 1.5, lineCap: .round, lineJoin: .round)
+      context.stroke(lines, with: .foreground, style: style)
+      context.stroke(arrow, with: .foreground, style: style)
+    }
+    .frame(width: 18, height: 16)
   }
 }
 

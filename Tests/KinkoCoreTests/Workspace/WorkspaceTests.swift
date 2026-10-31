@@ -51,8 +51,8 @@ struct WorkspaceTests {
   @Test("新しすぎる形式は文字として開かず、対応していないと伝える")
   func newerFormatIsNotTreatedAsText() {
     // Given / When / Then
-    #expect(throws: WorkspaceError.unsupportedVersion(7)) {
-      try Workspace.decode(Data(#"{"kinkoWorkspace":7,"items":[]}"#.utf8))
+    #expect(throws: WorkspaceError.unsupportedVersion(8)) {
+      try Workspace.decode(Data(#"{"kinkoWorkspace":8,"items":[]}"#.utf8))
     }
   }
 

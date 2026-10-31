@@ -22,6 +22,36 @@ extension SheetEditorModel {
     applyStyle { $0[keyPath: keyPath] = on }
   }
 
+  /// 列の幅に収まらない文字の見せ方
+  enum TextOverflow: CaseIterable {
+    /// 右隣が空なら、はみ出して見せる（既定）
+    case overflow
+    /// 列の幅で折り返して、複数行で見せる
+    case wrap
+    /// セルの幅で切る
+    case clip
+
+    var title: String {
+      switch self {
+      case .overflow: "はみ出す"
+      case .wrap: "折り返す（セルの中の改行は option + Return）"
+      case .clip: "切り詰める"
+      }
+    }
+  }
+
+  var activeOverflow: TextOverflow {
+    let style = activeStyle
+    return style.wraps ? .wrap : style.clips ? .clip : .overflow
+  }
+
+  func setOverflow(_ overflow: TextOverflow) {
+    applyStyle {
+      $0.wraps = overflow == .wrap
+      $0.clips = overflow == .clip
+    }
+  }
+
   func setVerticalAlignment(_ alignment: VerticalAlignment) {
     // 下揃えは既定（nil）として持つ
     let value: VerticalAlignment? = alignment == .bottom ? nil : alignment

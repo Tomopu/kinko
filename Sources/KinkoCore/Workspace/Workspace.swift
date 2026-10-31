@@ -6,8 +6,8 @@ import Foundation
 public struct Workspace: Codable, Equatable, Sendable {
   /// 2 で表（WorkspaceItem.sheet）が、3 でセルの書式（Sheet.styles）が、4 で折り返し・縦の配置・行の高さが、
   /// 5 で罫線の種類と色が、6 で PDF（WorkspaceItem.data）とフォントの種類・大きさが加わった
-  /// （形式 5 までのアプリは PDF を空のテキストとして読み、保存すると中身を落とす）
-  public static let currentVersion = 6
+  /// （形式 5 までのアプリは PDF を空のテキストとして読み、保存すると中身を落とす）、7 で文字の切り詰め（CellStyle.clips）が加わった
+  public static let currentVersion = 7
 
   /// 中身が Kinko のワークスペースであることと、その形式のバージョン
   public var kinkoWorkspace = Workspace.currentVersion
