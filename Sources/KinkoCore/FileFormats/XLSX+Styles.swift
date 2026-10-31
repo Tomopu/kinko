@@ -212,9 +212,11 @@ extension XLSX {
       if style.italic { xml += "<i/>" }
       if style.strikethrough { xml += "<strike/>" }
       if style.underline { xml += "<u/>" }
-      xml += #"<sz val="11"/>"#
+      let size = style.fontSize ?? CellStyle.defaultFontSize
+      // 11.0 ではなく 11 と書く（Excel と同じ）
+      xml += #"<sz val="\#(size == size.rounded() ? String(Int(size)) : String(size))"/>"#
       if let color = style.textColor { xml += #"<color rgb="FF\#(color)"/>"# }
-      return xml + #"<name val="Calibri"/></font>"#
+      return xml + #"<name val="\#(XLSX.escape(style.fontName ?? "Calibri"))"/></font>"#
     }
 
     /// 辺の順（left, right, top, bottom, diagonal）はスキーマで決まっている。

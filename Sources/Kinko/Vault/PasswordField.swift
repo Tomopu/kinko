@@ -50,7 +50,7 @@ struct PasswordField: View {
     }
     .buttonStyle(.borderless)
     .foregroundStyle(.secondary)
-    .help(isRevealed ? "パスワードを隠す" : "パスワードを表示")
+    .hoverLabel(isRevealed ? "パスワードを隠す" : "パスワードを表示")
     .accessibilityLabel(isRevealed ? "パスワードを隠す" : "パスワードを表示")
   }
 }

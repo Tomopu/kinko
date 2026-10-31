@@ -142,12 +142,37 @@ extension SheetCellsView {
     }
   }
 
+  /// Windows の Excel でよく使われる、Mac にないフォントの代わり（表示にだけ使い、書式の名前はそのまま持つ）
+  private static let fontSubstitutes = [
+    "游ゴシック": "YuGothic", "Yu Gothic": "YuGothic", "游明朝": "YuMincho", "Yu Mincho": "YuMincho",
+    "ＭＳ ゴシック": "Hiragino Sans", "ＭＳ Ｐゴシック": "Hiragino Sans", "MS Gothic": "Hiragino Sans", "MS PGothic": "Hiragino Sans",
+    "メイリオ": "Hiragino Sans", "Meiryo": "Hiragino Sans",
+    "ＭＳ 明朝": "Hiragino Mincho ProN", "ＭＳ Ｐ明朝": "Hiragino Mincho ProN", "MS Mincho": "Hiragino Mincho ProN",
+  ]
+
+  /// 書式のフォント。大きさは Excel の 11 ポイントを表の既定の 13 ポイントとして、同じ割合で大きくする。
+  /// この Mac にないフォントは既定のフォントで見せる
+  static func font(for style: CellStyle) -> NSFont {
+    let size = CGFloat(style.fontSize ?? CellStyle.defaultFontSize) * font.pointSize / CGFloat(CellStyle.defaultFontSize)
+    var result =
+      style.fontName.flatMap { name in
+        NSFontManager.shared.font(withFamily: fontSubstitutes[name] ?? name, traits: [], weight: 5, size: size)
+      } ?? NSFont.monospacedDigitSystemFont(ofSize: size, weight: .regular)
+    if style.bold { result = NSFontManager.shared.convert(result, toHaveTrait: .boldFontMask) }
+    return result
+  }
+
+  /// 1 行の文字の高さ
+  static func lineHeight(for style: CellStyle) -> CGFloat {
+    let font = font(for: style)
+    return ceil(font.ascender - font.descender)
+  }
+
   /// 書式を反映した文字の属性
   static func attributes(
     for style: CellStyle, value: CellValue, alignment: NSTextAlignment, wraps: Bool = false
   ) -> [NSAttributedString.Key: Any] {
-    var font = font
-    if style.bold { font = NSFontManager.shared.convert(font, toHaveTrait: .boldFontMask) }
+    let font = font(for: style)
     let paragraph = NSMutableParagraphStyle()
     paragraph.alignment = alignment
     // 日本語は単語の区切りがないので、byWordWrapping でも文字の間で折り返す
@@ -245,7 +270,7 @@ extension SheetCellsView {
         NSRect(x: base.maxX - 1, y: rect.minY, width: rect.maxX - base.maxX, height: rect.height - 1).fill()
       }
     }
-    let lineHeight = ceil(Self.font.ascender - Self.font.descender)
+    let lineHeight = Self.lineHeight(for: style)
     let y: CGFloat =
       switch style.verticalAlignment {
       case .top: rect.minY + 3

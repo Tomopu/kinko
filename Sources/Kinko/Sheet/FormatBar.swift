@@ -20,6 +20,25 @@ struct FormatBar: View {
     let style = model.activeStyle
     FlowLayout(spacing: 10, lineSpacing: 4) {
       HStack(spacing: 2) {
+        FontFamilyMenu(current: style.fontName) { model.setFontName($0) }
+        Menu {
+          Picker("文字の大きさ", selection: Binding(get: { style.fontSize ?? CellStyle.defaultFontSize }, set: { model.setFontSize($0) })) {
+            ForEach(SheetEditorModel.fontSizes, id: \.self) { size in
+              Text(Self.sizeText(size)).tag(size)
+            }
+          }
+          .pickerStyle(.inline)
+          .labelsHidden()
+        } label: {
+          Text(Self.sizeText(style.fontSize ?? CellStyle.defaultFontSize)).monospacedDigit()
+        }
+        .menuStyle(.borderlessButton)
+        .frame(width: 48)
+        .hoverLabel("文字の大きさ（ポイント）")
+        FormatToggle(title: "文字を大きく", symbol: "textformat.size.larger", isOn: false) { model.stepFontSize(up: true) }
+        FormatToggle(title: "文字を小さく", symbol: "textformat.size.smaller", isOn: false) { model.stepFontSize(up: false) }
+      }
+      HStack(spacing: 2) {
         FormatToggle(title: "太字（⌘B）", symbol: "bold", isOn: style.bold) { model.toggle(\.bold) }
           .keyboardShortcut("b")
         FormatToggle(title: "斜体（⌘I）", symbol: "italic", isOn: style.italic) { model.toggle(\.italic) }
@@ -43,7 +62,7 @@ struct FormatBar: View {
           Image(systemName: "square.dashed").frame(width: 26, height: 22).contentShape(Rectangle())
         }
         .buttonStyle(.borderless)
-        .help("罫線（場所・線の種類・色）")
+        .hoverLabel("罫線（場所・線の種類・色）")
         .accessibilityLabel("罫線")
         .popover(isPresented: $isEditingBorders) { BorderPanel(model: model) }
       }
@@ -76,7 +95,7 @@ struct FormatBar: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("表示形式")
+        .hoverLabel("表示形式")
         FormatToggle(title: "小数点以下の桁を増やす", text: "+.0", isOn: false) { model.changeDecimals(by: 1) }
         FormatToggle(title: "小数点以下の桁を減らす", text: "−.0", isOn: false) { model.changeDecimals(by: -1) }
       }
@@ -89,12 +108,17 @@ struct FormatBar: View {
         }
         .menuStyle(.borderlessButton)
         .fixedSize()
-        .help("選んだ行を、入力先のセルの列で並べ替える")
+        .hoverLabel("選んだ行を、入力先のセルの列で並べ替える")
         FormatToggle(title: "書式をクリア", symbol: "eraser", isOn: false) { model.clearFormats() }
       }
     }
     .padding(.horizontal, 8)
     .padding(.vertical, 5)
+  }
+
+  /// 11 や 10.5
+  static func sizeText(_ size: Double) -> String {
+    size == size.rounded() ? String(Int(size)) : String(size)
   }
 
   static func formatName(_ format: NumberFormat) -> String {
@@ -104,6 +128,95 @@ struct FormatBar: View {
     case .currency: "通貨"
     case .percent: "パーセント"
     }
+  }
+}
+
+/// フォントの種類を選ぶメニュー。よく使うものを並べ、それ以外は「ほかのフォント…」の一覧から選ぶ
+private struct FontFamilyMenu: View {
+  let current: String?
+  let apply: (String?) -> Void
+  @State private var isChoosingOther = false
+
+  /// よく使うフォント。この Mac にあるものだけを出す
+  private static let common: [String] = {
+    let installed = Set(NSFontManager.shared.availableFontFamilies)
+    return [
+      "Hiragino Sans", "Hiragino Mincho ProN", "Hiragino Maru Gothic ProN", "YuGothic", "YuMincho", "Osaka", "Klee",
+      "Helvetica Neue", "Arial", "Times New Roman", "Georgia", "Courier New", "Menlo",
+    ].filter(installed.contains)
+  }()
+
+  /// 「ヒラギノ角ゴシック」のような、この Mac の言語での名前
+  static func displayName(_ family: String) -> String {
+    NSFontManager.shared.localizedName(forFamily: family, face: nil)
+  }
+
+  var body: some View {
+    Menu {
+      Picker("フォント", selection: Binding(get: { current ?? "" }, set: { apply($0.isEmpty ? nil : $0) })) {
+        Text("標準のフォント").tag("")
+        Divider()
+        ForEach(Self.common, id: \.self) { family in
+          Text(Self.displayName(family)).tag(family)
+        }
+        // 一覧にないフォント（読み込んだ .xlsx のものなど）も、選んでいることが分かるように出す
+        if let current, !Self.common.contains(current) {
+          Divider()
+          Text(Self.displayName(current)).tag(current)
+        }
+      }
+      .pickerStyle(.inline)
+      .labelsHidden()
+      Divider()
+      Button("ほかのフォント…") { isChoosingOther = true }
+    } label: {
+      Text(current.map(Self.displayName) ?? "標準のフォント").lineLimit(1)
+    }
+    .menuStyle(.borderlessButton)
+    .frame(width: 132)
+    .hoverLabel("フォント")
+    .popover(isPresented: $isChoosingOther) {
+      AllFontsList(current: current) { family in
+        apply(family)
+        isChoosingOther = false
+      }
+    }
+  }
+}
+
+/// この Mac にあるすべてのフォントから選ぶ。名前で絞り込める
+private struct AllFontsList: View {
+  let current: String?
+  let apply: (String) -> Void
+  @State private var query = ""
+
+  private var families: [String] {
+    let all = NSFontManager.shared.availableFontFamilies.filter { !$0.hasPrefix(".") }
+    guard !query.isEmpty else { return all }
+    return all.filter { $0.localizedCaseInsensitiveContains(query) || FontFamilyMenu.displayName($0).localizedCaseInsensitiveContains(query) }
+  }
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 8) {
+      TextField("フォントを探す", text: $query).textFieldStyle(.roundedBorder)
+      List(families, id: \.self) { family in
+        Button {
+          apply(family)
+        } label: {
+          HStack {
+            // 名前はそのフォントで見せる
+            Text(FontFamilyMenu.displayName(family)).font(.custom(family, size: 13))
+            Spacer()
+            if family == current { Image(systemName: "checkmark") }
+          }
+          .contentShape(Rectangle())
+        }
+        .buttonStyle(.plain)
+      }
+      .listStyle(.plain)
+    }
+    .padding(12)
+    .frame(width: 260, height: 340)
   }
 }
 
@@ -185,7 +298,7 @@ private struct FormatToggle: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.borderless)
-    .help(title)
+    .hoverLabel(title)
     .accessibilityLabel(title)
   }
 }
@@ -215,7 +328,7 @@ private struct ColorButton<Label: View>: View {
       .contentShape(Rectangle())
     }
     .buttonStyle(.borderless)
-    .help(title)
+    .hoverLabel(title)
     .accessibilityLabel(title)
     .popover(isPresented: $isShowing) {
       VStack(alignment: .leading, spacing: 10) {

@@ -33,6 +33,27 @@ extension SheetEditorModel {
     applyStyle { $0.alignment = value }
   }
 
+  /// フォントの種類。nil なら既定のフォントに戻す
+  func setFontName(_ name: String?) {
+    applyStyle { $0.fontName = name }
+  }
+
+  /// 文字の大きさ。既定の 11 は持たない
+  func setFontSize(_ size: Double) {
+    let size = min(max(size, CellStyle.fontSizes.lowerBound), CellStyle.fontSizes.upperBound)
+    applyStyle { $0.fontSize = size == CellStyle.defaultFontSize ? nil : size }
+  }
+
+  /// 文字を 1 段階大きく（小さく）する。段階は書式バーの大きさの一覧と同じ
+  func stepFontSize(up: Bool) {
+    let current = activeStyle.fontSize ?? CellStyle.defaultFontSize
+    let next = up ? Self.fontSizes.first { $0 > current } : Self.fontSizes.last { $0 < current }
+    if let next { setFontSize(next) }
+  }
+
+  /// 書式バーで選べる文字の大きさ（Excel と同じ並び）
+  static let fontSizes: [Double] = [8, 9, 10, 11, 12, 14, 16, 18, 20, 22, 24, 26, 28, 36, 48, 72]
+
   func setNumberFormat(_ format: NumberFormat) {
     applyStyle { $0.numberFormat = format }
   }

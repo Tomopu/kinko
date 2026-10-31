@@ -130,6 +130,7 @@ private struct PasswordView: View {
   @State private var confirmation = ""
   @State private var bindToThisMac = false
   @State private var triedTouchID = false
+  @State private var isShowingComparison = false
 
   private var options: VaultSession.UnlockOptions { session.unlockOptions }
   /// この Mac 専用の金庫なのに、この Mac に鍵がない（ほかの Mac か、鍵を消した）
@@ -154,9 +155,19 @@ private struct PasswordView: View {
           .font(.callout)
           .foregroundStyle(.secondary)
           .fixedSize(horizontal: false, vertical: true)
-        Toggle("この Mac でだけ開けるようにする", isOn: $bindToThisMac)
-          .disabled(!DeviceKeyStore.isSecureEnclaveAvailable)
-          .help("パスワードとこの Mac の鍵の両方で開きます。コピーされたファイルは、ほかの Mac では開けません。復旧コードを控える必要があります。")
+        HStack {
+          Toggle("この Mac でだけ開けるようにする", isOn: $bindToThisMac)
+            .disabled(!DeviceKeyStore.isSecureEnclaveAvailable)
+          Button("違いを見る", systemImage: "questionmark.circle") { isShowingComparison = true }
+            .labelStyle(.iconOnly)
+            .buttonStyle(.borderless)
+            .hoverLabel("この Mac 専用にした場合との違い")
+            .popover(isPresented: $isShowingComparison) {
+              ProtectionComparison()
+                .padding(16)
+                .frame(width: 460)
+            }
+        }
       }
       if let message = session.errorMessage {
         Text(message).foregroundStyle(.red)
@@ -183,7 +194,7 @@ private struct PasswordView: View {
           } label: {
             Image(systemName: "touchid")
           }
-          .help("Touch ID で開く")
+          .hoverLabel("Touch ID で開く")
           .disabled(session.isBusy)
         }
         if !isMissingDeviceKey {

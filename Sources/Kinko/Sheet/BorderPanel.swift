@@ -74,7 +74,7 @@ struct BorderPanel: View {
             .contentShape(Rectangle())
           }
           .buttonStyle(.plain)
-          .help(placement.title)
+          .hoverLabel(placement.title)
         }
       }
     }

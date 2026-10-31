@@ -26,13 +26,14 @@ struct WorkspaceView: View {
       ToolbarItemGroup(placement: .primaryAction) {
         if let id = session.selection, session.workspace.item(id)?.isMarkdown == true {
           Toggle("記号を表示", systemImage: "number", isOn: $showsMarkdownSyntax)
-            .help("Markdown の記号（# や ** など）をすべての行で表示する")
+            .hoverLabel("Markdown の記号（# や ** など）をすべての行で表示する")
         }
         // macOS には決まった保存アイコンがなく、矢印のアイコンはダウンロードに見えるので文字にする
         Button("保存") { session.save() }
           .disabled(!session.isDirty)
-          .help("暗号化して保存（⌘S）")
+          .hoverLabel("暗号化して保存（⌘S）")
         Button("ロック", systemImage: "lock") { requestLock() }
+          .hoverLabel("ロック（⌘L）")
       }
     }
     .alert(namePrompt?.title ?? "", isPresented: isPromptingName) {
@@ -115,14 +116,18 @@ struct WorkspaceView: View {
     .safeAreaInset(edge: .bottom) {
       HStack(spacing: 4) {
         Button("新規ファイル", systemImage: "doc.badge.plus", action: promptNewFile)
-          .help("新規ファイル（⌘N）")
+          .hoverLabel("新規ファイル（⌘N）")
         Button("新規の表", systemImage: "tablecells.badge.ellipsis", action: promptNewSheet)
-          .help("新規の表（⌥⌘N）")
+          .hoverLabel("新規の表（⌥⌘N）")
         Button("新規フォルダ", systemImage: "folder.badge.plus", action: promptNewFolder)
-          .help("新規フォルダ（⇧⌘N）")
-        Spacer()
+          .hoverLabel("新規フォルダ（⇧⌘N）")
         Button("読み込む", systemImage: "square.and.arrow.down") { session.importFiles() }
-          .help("ファイルやフォルダを金庫へ読み込む（⇧⌘I）")
+          .hoverLabel("ファイルやフォルダを金庫へ読み込む（⇧⌘I）")
+        Spacer()
+        SettingsLink {
+          Label("設定", systemImage: "gearshape")
+        }
+        .hoverLabel("設定（⌘,）")
       }
       .labelStyle(.iconOnly)
       .buttonStyle(.borderless)
@@ -143,6 +148,8 @@ struct WorkspaceView: View {
         Group {
           if item.isSheet {
             SheetEditor(workbook: Binding(get: { session.workbook(of: id) }, set: { session.setWorkbook($0, of: id) }))
+          } else if let data = item.data {
+            PDFViewer(data: data)
           } else if item.isMarkdown {
             MarkdownEditor(text: text, showsSyntax: showsMarkdownSyntax)
           } else {
@@ -315,6 +322,7 @@ extension WorkspaceItem {
   /// 中に線のない、形だけのアイコンにする（一覧が細かい模様だらけにならないように）
   var symbolName: String {
     if isFolder { return "folder" }
+    if isPDF { return "book.closed" }
     return isSheet ? "tablecells" : "doc"
   }
 }

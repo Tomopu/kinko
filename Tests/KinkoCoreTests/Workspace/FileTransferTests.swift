@@ -35,6 +35,28 @@ struct FileTransferTests {
     }
   }
 
+  @Test("PDF はそのままのバイト列で取り込み、書き出すと同じバイト列に戻る")
+  func pdfImportsAsIs() throws {
+    // Given: 先頭に少しごみのある PDF（仕様で許されている）
+    let bytes = Data("garbage\n%PDF-1.4\n".utf8) + Data([0x00, 0xE2, 0xE3])
+
+    // When
+    let item = try FileTransfer.importFile(named: "契約書.PDF", data: bytes)
+
+    // Then
+    #expect(item.isPDF)
+    #expect(try FileTransfer.exportData(for: item) == bytes)
+    #expect(FileTransfer.exportName(for: item) == "契約書.PDF")
+  }
+
+  @Test("拡張子が .pdf でも、PDF でないものは取り込まない")
+  func fakePDFIsRefused() {
+    // Given / When / Then
+    #expect(throws: FileTransferError.notPDF("偽物.pdf")) {
+      try FileTransfer.importFile(named: "偽物.pdf", data: Data("ただのテキスト".utf8))
+    }
+  }
+
   @Test("CSV はファイル名を名前にしたシート 1 枚の表として取り込む")
   func spreadsheetsBecomeSheets() throws {
     // Given / When

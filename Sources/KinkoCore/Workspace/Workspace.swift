@@ -5,8 +5,9 @@ import Foundation
 /// （ファイルごとに暗号化してディスクに並べる方式だと、これらは外から見えてしまう）
 public struct Workspace: Codable, Equatable, Sendable {
   /// 2 で表（WorkspaceItem.sheet）が、3 でセルの書式（Sheet.styles）が、4 で折り返し・縦の配置・行の高さが、
-  /// 5 で罫線の種類と色が加わった（形式 4 までのアプリは新しい罫線を読めない）
-  public static let currentVersion = 5
+  /// 5 で罫線の種類と色が、6 で PDF（WorkspaceItem.data）とフォントの種類・大きさが加わった
+  /// （形式 5 までのアプリは PDF を空のテキストとして読み、保存すると中身を落とす）
+  public static let currentVersion = 6
 
   /// 中身が Kinko のワークスペースであることと、その形式のバージョン
   public var kinkoWorkspace = Workspace.currentVersion
@@ -118,7 +119,7 @@ public struct Workspace: Codable, Equatable, Sendable {
 
   public mutating func setText(_ text: String, for id: UUID) {
     items.modify(id) { item in
-      if !item.isFolder && !item.isSheet { item.text = text }
+      if !item.isFolder && !item.isSheet && !item.isPDF { item.text = text }
     }
   }
 
@@ -174,9 +175,12 @@ public struct WorkspaceItem: Codable, Equatable, Identifiable, Sendable {
   /// 表のファイルなら中身。テキストのファイルとフォルダでは nil。
   /// 種類は作ったときに決まり、名前（拡張子）を変えても変わらない
   public var sheet: Workbook?
+  /// PDF の中身（そのままのバイト列）。PDF でなければ nil。見るだけで、金庫の中では書き換えない
+  public var data: Data?
 
   public var isFolder: Bool { children != nil }
   public var isSheet: Bool { sheet != nil }
+  public var isPDF: Bool { data != nil }
 
   public static func file(_ name: String, text: String = "") -> WorkspaceItem {
     WorkspaceItem(id: UUID(), name: name, children: nil, text: text)
@@ -184,6 +188,10 @@ public struct WorkspaceItem: Codable, Equatable, Identifiable, Sendable {
 
   public static func sheet(_ name: String, workbook: Workbook = Workbook()) -> WorkspaceItem {
     WorkspaceItem(id: UUID(), name: name, children: nil, text: "", sheet: workbook)
+  }
+
+  public static func pdf(_ name: String, data: Data) -> WorkspaceItem {
+    WorkspaceItem(id: UUID(), name: name, children: nil, text: "", data: data)
   }
 
   public static func folder(_ name: String, children: [WorkspaceItem] = []) -> WorkspaceItem {

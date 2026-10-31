@@ -58,7 +58,7 @@ struct SheetEditor: View {
       Button("シートを追加", systemImage: "plus") { model.addSheet() }
         .labelStyle(.iconOnly)
         .buttonStyle(.borderless)
-        .help("シートを追加")
+        .hoverLabel("シートを追加")
       Spacer()
       if let message = model.errorMessage {
         Text(message).foregroundStyle(.red).lineLimit(1)

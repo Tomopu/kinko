@@ -39,7 +39,7 @@ public enum FileTransfer {
     return try importFile(named: url.lastPathComponent, data: Data(contentsOf: url))
   }
 
-  /// ファイルの中身から項目を作る。表（.xlsx .csv .tsv）は表に、それ以外はテキストとして読む
+  /// ファイルの中身から項目を作る。表（.xlsx .csv .tsv）は表に、PDF は PDF に、それ以外はテキストとして読む
   public static func importFile(named name: String, data: Data) throws -> WorkspaceItem {
     guard data.count <= maxFileSize else { throw FileTransferError.tooLarge(name) }
     do {
@@ -51,6 +51,10 @@ public enum FileTransfer {
         return .sheet(name, workbook: Workbook(sheets: [try CSV.read(data, name: sheetName(for: name))]))
       case "tsv":
         return .sheet(name, workbook: Workbook(sheets: [try CSV.read(data, name: sheetName(for: name), separator: "\t")]))
+      case "pdf":
+        // PDF は先頭 1024 バイトの中に "%PDF-" がある（その前にごみがあってもよいことになっている）
+        guard data.prefix(1024).range(of: Data("%PDF-".utf8)) != nil else { throw FileTransferError.notPDF(name) }
+        return .pdf(name, data: data)
       default:
         return .file(name, text: try text(from: data, name: name))
       }
@@ -93,6 +97,7 @@ public enum FileTransfer {
 
   /// ファイル 1 つ分の中身。表は名前（拡張子）に合わせて .xlsx か CSV（最初のシートだけ）にする
   public static func exportData(for item: WorkspaceItem, as name: String? = nil) throws -> Data {
+    if let data = item.data { return data }
     guard let workbook = item.sheet else { return Data(item.text.utf8) }
     let calculator = Calculator(workbook: workbook)
     switch ((name ?? exportName(for: item)) as NSString).pathExtension.lowercased() {
@@ -124,14 +129,16 @@ public enum FileTransferError: Error, LocalizedError, Equatable {
   case binary(String)
   case unsupported(String)
   case unreadable(String, String)
+  case notPDF(String)
 
   public var errorDescription: String? {
     switch self {
     case .tooLarge(let name): "「\(name)」は大きすぎます（\(FileTransfer.maxFileSize / 1024 / 1024) MB まで）。"
     case .tooManyItems: "ファイルが多すぎるか、フォルダが深すぎます（\(FileTransfer.maxItems) 個・\(FileTransfer.maxDepth) 階層まで）。"
-    case .binary(let name): "「\(name)」はテキストではないので読み込めません。読み込めるのはテキスト・Markdown・CSV・Excel（.xlsx）です。"
+    case .binary(let name): "「\(name)」はテキストではないので読み込めません。読み込めるのはテキスト・Markdown・CSV・Excel（.xlsx）・PDF です。"
     case .unsupported(let name): "「\(name)」は読み込めません（シンボリックリンクは読み込みません）。"
     case .unreadable(let name, let reason): "「\(name)」を読み込めません。\(reason)"
+    case .notPDF(let name): "「\(name)」は PDF として読めません。ファイルが壊れているか、拡張子が違います。"
     }
   }
 }

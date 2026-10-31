@@ -82,6 +82,7 @@ enum Snapshot {
     checkPasswordChange(directory: directory)
     checkEraseAfterFailures(directory: directory)
     checkDeviceBound(directory: directory)
+    checkFeatures(url: url, directory: directory)
     exit(0)
   }
 

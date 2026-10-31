@@ -18,7 +18,7 @@ struct SettingsView: View {
         .tabItem { Label("セキュリティ", systemImage: "lock.shield") }
         .tag(Tab.security)
       PasswordSettings()
-        .tabItem { Label("パスワード", systemImage: "key") }
+        .tabItem { Label("パスワード変更", systemImage: "key") }
         .tag(Tab.password)
     }
     .frame(width: 480)
@@ -51,18 +51,17 @@ private struct SecuritySettings: View {
     Form {
       Section("開いている金庫") {
         if let protection = session.protection {
-          LabeledContent("この Mac 専用") {
+          LabeledContent("守り方") {
+            Text(protection == .deviceBound ? "この Mac 専用" : "パスワードだけ（どの Mac でも開ける）")
+          }
+          ProtectionComparison(current: protection)
+          HStack {
+            Spacer()
             Button(protection == .deviceBound ? "どの Mac でも開けるように戻す…" : "この Mac 専用にする…") {
               bindingRequest = protection != .deviceBound
             }
             .disabled(protection == .password && !DeviceKeyStore.isSecureEnclaveAvailable)
           }
-          Text(
-            protection == .deviceBound
-              ? "この Mac 専用です。パスワードとこの Mac の鍵の両方で開きます。ファイルをほかの Mac へコピーされても、何回試されても開けません。"
-              : "パスワードだけで開けます（どの Mac でも開けます）。この Mac 専用にすると、コピーされたファイルはほかの Mac では開けなくなります。"
-          )
-          .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
           Toggle("Touch ID で開く", isOn: touchID)
             .disabled(!DeviceKeyStore.isTouchIDAvailable || session.isBusy)
           Text(
@@ -98,7 +97,7 @@ private struct SecuritySettings: View {
     }
     .formStyle(.grouped)
     // Form は中身の高さを外に伝えないので、説明文まで入る高さにしておく（足りないと下が切れてスクロールになる）
-    .frame(minHeight: 470)
+    .frame(minHeight: 700)
     .sheet(item: Binding(get: { bindingRequest.map(BindingRequest.init) }, set: { bindingRequest = $0?.bind })) { request in
       BindingSheet(bind: request.bind)
     }

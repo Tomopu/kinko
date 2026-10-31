@@ -457,4 +457,46 @@ struct XLSXStyleTests {
     // 既定（空）+ 13 種類 + 1 辺だけ
     #expect(styles.contains(#"<borders count="15">"#))
   }
+
+  // MARK: - フォント
+
+  @Test("フォントの種類と大きさを書いて読み戻せ、既定のフォントの 11 ポイントは持たない")
+  func writeThenReadFonts() throws {
+    // Given: 明朝の 18 ポイント、10.5 ポイント、既定のフォント
+    var sheet = Sheet(name: "S", cells: ["A1": "見出し", "A2": "注", "A3": "本文"])
+    sheet[style: "A1"] = style {
+      $0.fontName = "Hiragino Mincho ProN"
+      $0.fontSize = 18
+    }
+    sheet[style: "A2"] = style { $0.fontSize = 10.5 }
+
+    // When
+    let data = try written(sheet)
+    let read = try #require(try XLSX.read(data).sheets.first)
+    let styles = try xmlPart("xl/styles.xml", in: data)
+
+    // Then: 大きさは整数なら小数点なしで書く
+    #expect(read.styles == sheet.styles)
+    #expect(styles.contains(#"<sz val="18"/><name val="Hiragino Mincho ProN"/>"#))
+    #expect(styles.contains(#"<sz val="10.5"/><name val="Calibri"/>"#))
+  }
+
+  @Test("ブックの既定のフォント（0 番）と同じ種類は持たず、大きさは範囲に収める")
+  func readsFontsRelativeToDefault() throws {
+    // Given: 既定は游ゴシック 11。1 番は同じ游ゴシックの 14、2 番は Arial の 500 ポイント
+    let fonts = #"<fonts count="3"><font><sz val="11"/><name val="游ゴシック"/></font><font><sz val="14"/><name val="游ゴシック"/></font><font><sz val="500"/><name val="Arial"/></font></fonts>"#
+    let xfs = #"<cellXfs count="3"><xf fontId="0"/><xf fontId="1"/><xf fontId="2"/></cellXfs>"#
+    let data = try package(
+      sheetXML: #"<row r="1"><c r="A1" s="1"><v>1</v></c><c r="B1" s="2"><v>2</v></c></row>"#, stylesXML: fonts + xfs)
+
+    // When
+    let sheet = try #require(try XLSX.read(data).sheets.first)
+
+    // Then
+    #expect(sheet[style: "A1"] == style { $0.fontSize = 14 })
+    #expect(sheet[style: "B1"] == style {
+      $0.fontName = "Arial"
+      $0.fontSize = 409
+    })
+  }
 }

@@ -141,6 +141,8 @@ final class XLSXReader {
     struct Font {
       var bold = false, italic = false, underline = false, strikethrough = false
       var color: ColorSpec?
+      var size: Double?
+      var name: String?
     }
     struct Fill {
       var pattern = "none"
@@ -195,6 +197,8 @@ final class XLSXReader {
       case "u" where within(path, "fonts", "font"): fonts[fonts.count - 1].underline = isOn(attributes)
       case "strike" where within(path, "fonts", "font"): fonts[fonts.count - 1].strikethrough = isOn(attributes)
       case "color" where within(path, "fonts", "font"): fonts[fonts.count - 1].color = attributes
+      case "sz" where within(path, "fonts", "font"): fonts[fonts.count - 1].size = attributes["val"].flatMap { Double($0) }
+      case "name" where within(path, "fonts", "font"): fonts[fonts.count - 1].name = attributes["val"]
       case "fill" where path.last == "fills": fills.append(Fill())
       case "patternFill" where within(path, "fills", "fill"): fills[fills.count - 1].pattern = attributes["patternType"] ?? "none"
       case "fgColor" where path.count >= 3 && path[path.count - 3] == "fills" && path.last == "patternFill":
@@ -269,6 +273,11 @@ final class XLSXReader {
         style.strikethrough = font.strikethrough
         // 黒の文字は「既定の色」として持つ（ダークモードで黒い字が背景に溶けないように）
         style.textColor = color(font.color).flatMap { $0 == black ? nil : $0 }
+        // 大きさは 11 以外を、種類はブックの既定（0 番のフォント）と違うものだけを持つ
+        if let size = font.size, size.isFinite, size != CellStyle.defaultFontSize {
+          style.fontSize = min(max(size, CellStyle.fontSizes.lowerBound), CellStyle.fontSizes.upperBound)
+        }
+        if let name = font.name, !name.isEmpty, name != fonts[0].name { style.fontName = name }
       }
       if fills.indices.contains(format.fill) {
         let fill = fills[format.fill]

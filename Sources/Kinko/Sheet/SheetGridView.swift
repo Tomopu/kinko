@@ -28,6 +28,10 @@ final class SheetGridView: NSView {
     scrollView.backgroundColor = .textBackgroundColor
     scrollView.contentView.postsBoundsChangedNotifications = true
     for view in [scrollView, columnHeader, rowHeader, corner] as [NSView] { addSubview(view) }
+    // macOS 14 からは既定で枠の外にも描けるので、見出しの番号が下のシートの切り替えに重ならないよう切る
+    clipsToBounds = true
+    rowHeader.clipsToBounds = true
+    columnHeader.clipsToBounds = true
     NotificationCenter.default.addObserver(
       self, selector: #selector(didScroll), name: NSView.boundsDidChangeNotification, object: scrollView.contentView)
     reload()
@@ -51,7 +55,9 @@ final class SheetGridView: NSView {
   func reload() {
     let model = model
     geometry.update(sheet: model.sheet, active: model.active, revision: model.revision) { address in
-      SheetCellsView.wrappedHeight(model.displayText(at: address), style: model.style(at: address), width: model.sheet.width(ofColumn: address.column))
+      let style = model.style(at: address), text = model.displayText(at: address)
+      guard style.wraps, !text.isEmpty else { return SheetCellsView.lineHeight(for: style) + 6 }
+      return SheetCellsView.wrappedHeight(text, style: style, width: model.sheet.width(ofColumn: address.column))
     }
     if cells.frame.size != geometry.size { cells.setFrameSize(geometry.size) }
     cells.needsDisplay = true

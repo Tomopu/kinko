@@ -51,8 +51,8 @@ struct WorkspaceTests {
   @Test("新しすぎる形式は文字として開かず、対応していないと伝える")
   func newerFormatIsNotTreatedAsText() {
     // Given / When / Then
-    #expect(throws: WorkspaceError.unsupportedVersion(6)) {
-      try Workspace.decode(Data(#"{"kinkoWorkspace":6,"items":[]}"#.utf8))
+    #expect(throws: WorkspaceError.unsupportedVersion(7)) {
+      try Workspace.decode(Data(#"{"kinkoWorkspace":7,"items":[]}"#.utf8))
     }
   }
 
@@ -182,6 +182,24 @@ struct WorkspaceTests {
     #expect(removed?.name == "仕事")
     #expect(workspace.item(file) == nil)
     #expect(workspace.items.isEmpty)
+  }
+
+  @Test("PDF は中身のバイト列ごと保存して読み戻せ、本文の書き込みは無視する")
+  func pdfSurvivesSave() throws {
+    // Given
+    let bytes = Data("%PDF-1.7\n".utf8) + Data([0x00, 0xFF, 0x80])
+    var workspace = Workspace()
+    let pdf = WorkspaceItem.pdf("資料.pdf", data: bytes)
+    try workspace.add(pdf, to: nil)
+
+    // When
+    workspace.setText("無視される", for: pdf.id)
+    let decoded = try Workspace.decode(workspace.encoded())
+
+    // Then
+    #expect(decoded.item(pdf.id)?.data == bytes)
+    #expect(decoded.item(pdf.id)?.isPDF == true)
+    #expect(decoded.item(pdf.id)?.text == "")
   }
 
   @Test("本文を書き換えられるのはファイルだけで、フォルダへの書き込みは無視する")

@@ -18,11 +18,11 @@ final class SheetGeometry {
   private(set) var offsets: [CGFloat] = [0]
   /// 各行の上端の y。最後の要素は表全体の高さ
   private(set) var rowOffsets: [CGFloat] = [0]
-  /// 折り返す文字に合わせて自動で高くした行。測るのは重いので、表が変わったときだけ測り直す
+  /// 折り返す文字や大きな文字に合わせて自動で高くした行。測るのは重いので、表が変わったときだけ測り直す
   private var autoHeights: [Int: CGFloat] = [:]
   private var measuredRevision = -1
 
-  /// measure は折り返すセルの中身を表示するのに要る高さ
+  /// measure は、折り返すセルやフォントを変えたセルの中身を表示するのに要る高さ
   func update(sheet: Sheet, active: CellAddress, revision: Int, measure: (CellAddress) -> CGFloat) {
     let used = sheet.usedRange
     rows = min(CellAddress.maxRows, max(200, (used?.end.row ?? 0) + 50, active.row + 30, extraRows))
@@ -35,7 +35,10 @@ final class SheetGeometry {
     if revision != measuredRevision {
       measuredRevision = revision
       autoHeights = [:]
-      for (address, style) in sheet.styles where style.wraps && sheet.rowHeights[address.row] == nil && !sheet[address].isEmpty {
+      // フォントを変えたセルは、中身がなくても行を高くする（Excel と同じ）
+      for (address, style) in sheet.styles where sheet.rowHeights[address.row] == nil
+        && ((style.wraps && !sheet[address].isEmpty) || style.fontSize != nil || style.fontName != nil)
+      {
         autoHeights[address.row] = max(autoHeights[address.row] ?? 0, measure(address))
       }
     }

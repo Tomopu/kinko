@@ -18,6 +18,15 @@ public struct CellStyle: Codable, Hashable, Sendable {
   public var numberFormat: NumberFormat = .general
   /// 罫線。辺ごとに線の種類と色を持つ
   public var borders = CellBorders()
+  /// フォントの種類（ファミリー名。"Hiragino Sans" など）。nil なら既定のフォント
+  public var fontName: String?
+  /// 文字の大きさ（ポイント。Excel と同じ数え方）。nil なら既定の 11
+  public var fontSize: Double?
+
+  /// Excel の既定の文字の大きさ
+  public static let defaultFontSize = 11.0
+  /// 選べる文字の大きさの範囲（Excel と同じ）
+  public static let fontSizes = 1.0...409.0
 
   public init() {}
 
@@ -25,6 +34,7 @@ public struct CellStyle: Codable, Hashable, Sendable {
 
   private enum CodingKeys: String, CodingKey {
     case bold, italic, underline, strikethrough, textColor, fillColor, alignment, verticalAlignment, wraps, numberFormat, borders
+    case fontName, fontSize
   }
 
   /// 既定の値は書かない（JSON を小さく、読みやすくする）
@@ -41,6 +51,8 @@ public struct CellStyle: Codable, Hashable, Sendable {
     if wraps { try container.encode(wraps, forKey: .wraps) }
     if numberFormat != .general { try container.encode(numberFormat, forKey: .numberFormat) }
     if !borders.isEmpty { try container.encode(borders, forKey: .borders) }
+    try container.encodeIfPresent(fontName, forKey: .fontName)
+    try container.encodeIfPresent(fontSize, forKey: .fontSize)
   }
 
   public init(from decoder: Decoder) throws {
@@ -56,6 +68,8 @@ public struct CellStyle: Codable, Hashable, Sendable {
     wraps = try container.decodeIfPresent(Bool.self, forKey: .wraps) ?? false
     numberFormat = try container.decodeIfPresent(NumberFormat.self, forKey: .numberFormat) ?? .general
     borders = try container.decodeIfPresent(CellBorders.self, forKey: .borders) ?? CellBorders()
+    fontName = try container.decodeIfPresent(String.self, forKey: .fontName)
+    fontSize = try container.decodeIfPresent(Double.self, forKey: .fontSize)
   }
 }
 

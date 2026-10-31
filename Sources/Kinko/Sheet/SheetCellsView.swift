@@ -221,7 +221,7 @@ extension SheetCellsView: NSTextFieldDelegate {
     let address = model.active
     let field = NSTextField(frame: editorFrame(for: address, text: replacing ? "" : model.input(at: address)))
     field.stringValue = replacing ? "" : model.input(at: address)
-    field.font = Self.font
+    field.font = Self.font(for: model.style(at: address))
     field.isBordered = false
     field.isBezeled = false
     field.focusRingType = .none
@@ -261,14 +261,16 @@ extension SheetCellsView: NSTextFieldDelegate {
       return frame
     }
     let lines = text.components(separatedBy: "\n")
-    let widest = lines.map { ($0 as NSString).size(withAttributes: [.font: Self.font]).width }.max() ?? 0
+    let font = Self.font(for: style)
+    let widest = lines.map { ($0 as NSString).size(withAttributes: [.font: font]).width }.max() ?? 0
     frame.size.width = max(frame.width, min(widest + 16, 600))
-    let lineHeight = ceil(Self.font.ascender - Self.font.descender) + 2
+    let lineHeight = Self.lineHeight(for: style) + 2
     if lines.count > 1 {
       frame.size.height = max(frame.height, CGFloat(lines.count) * lineHeight + 2)
     } else {
-      frame.origin.y += (frame.height - 18) / 2
-      frame.size.height = 18
+      let height = max(18, lineHeight)
+      frame.origin.y += (frame.height - height) / 2
+      frame.size.height = height
     }
     return frame
   }
