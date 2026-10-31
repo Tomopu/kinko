@@ -81,6 +81,7 @@ enum Snapshot {
     checkSheet(url: url, directory: directory)
     checkPasswordChange(directory: directory)
     checkEraseAfterFailures(directory: directory)
+    checkDeviceBound(directory: directory)
     exit(0)
   }
 

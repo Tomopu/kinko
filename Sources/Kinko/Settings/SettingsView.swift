@@ -1,8 +1,9 @@
 import KinkoCore
 import SwiftUI
 
-/// 設定画面（⌘,）。パスワードを間違えたときの扱いと、開いている金庫のパスワードの変更
+/// 設定画面（⌘,）。金庫の守り方（この Mac 専用・Touch ID・間違えたときの削除）と、開いている金庫のパスワードの変更
 struct SettingsView: View {
+  @Environment(VaultSession.self) private var session
   enum Tab: String {
     case security
     case password
@@ -20,38 +21,87 @@ struct SettingsView: View {
         .tabItem { Label("パスワード", systemImage: "key") }
         .tag(Tab.password)
     }
-    .frame(width: 460)
+    .frame(width: 480)
+    .sheet(item: recoveryCode) { pending in
+      RecoveryCodeView(code: pending.code)
+    }
+  }
+
+  /// 設定画面で作り直したときの復旧コードは、設定画面の上に出す
+  private var recoveryCode: Binding<VaultSession.PendingRecoveryCode?> {
+    Binding(
+      get: { session.pendingRecoveryCode.flatMap { $0.fromSettings ? $0 : nil } },
+      set: { if $0 == nil { session.acknowledgeRecoveryCode() } })
   }
 }
 
-/// パスワードを続けて間違えたときに、金庫のファイルを消すかどうか
+extension VaultSession.PendingRecoveryCode: Identifiable {
+  var id: String { code.description }
+}
+
+/// 金庫の守り方。この Mac 専用・Touch ID は開いている金庫ごと、間違えたときの削除はこの Mac の Kinko 全体の設定
 private struct SecuritySettings: View {
   @Environment(VaultSession.self) private var session
   /// 消す設定に切り替える前の確認で、選ぼうとしている回数
   @State private var pendingLimit: Int?
+  /// この Mac 専用にする（true）か解除する（false）ために、パスワードを聞いている
+  @State private var bindingRequest: Bool?
 
   var body: some View {
     Form {
-      Picker("パスワードを間違えたとき", selection: limit) {
-        Text("金庫を削除しない").tag(0)
-        ForEach(UnlockAttempts.limits, id: \.self) { count in
-          Text("\(count) 回続けて間違えたら金庫を削除する").tag(count)
+      Section("開いている金庫") {
+        if let protection = session.protection {
+          LabeledContent("この Mac 専用") {
+            Button(protection == .deviceBound ? "どの Mac でも開けるように戻す…" : "この Mac 専用にする…") {
+              bindingRequest = protection != .deviceBound
+            }
+            .disabled(protection == .password && !DeviceKeyStore.isSecureEnclaveAvailable)
+          }
+          Text(
+            protection == .deviceBound
+              ? "この Mac 専用です。パスワードとこの Mac の鍵の両方で開きます。ファイルをほかの Mac へコピーされても、何回試されても開けません。"
+              : "パスワードだけで開けます（どの Mac でも開けます）。この Mac 専用にすると、コピーされたファイルはほかの Mac では開けなくなります。"
+          )
+          .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+          Toggle("Touch ID で開く", isOn: touchID)
+            .disabled(!DeviceKeyStore.isTouchIDAvailable || session.isBusy)
+          Text(
+            DeviceKeyStore.isTouchIDAvailable
+              ? "パスワードの代わりに指で開けます。7 日に 1 回と、指紋を登録し直したあとはパスワードが必要です。"
+              : "この Mac では Touch ID を使えません。"
+          )
+          .font(.callout).foregroundStyle(.secondary).fixedSize(horizontal: false, vertical: true)
+          KeyChangeResult()
+        } else {
+          Text("金庫を開いているときに、その金庫の守り方を変えられます。")
+            .foregroundStyle(.secondary)
         }
       }
-      Text(
-        """
-        この Mac の Kinko で開こうとしたときだけ数え、正しいパスワードで開けたら数え直します。\
-        削除した金庫は元に戻せません（ゴミ箱にも入りません）。
-        ファイルをコピーされて別の道具で試された場合は防げません。また、Time Machine などのバックアップに残っているコピーは消えません。
-        """
-      )
-      .font(.callout)
-      .foregroundStyle(.secondary)
-      .fixedSize(horizontal: false, vertical: true)
+      Section("パスワードを間違えたとき") {
+        Picker("続けて間違えたら", selection: limit) {
+          Text("金庫を削除しない").tag(0)
+          ForEach(UnlockAttempts.limits, id: \.self) { count in
+            Text("\(count) 回で金庫を削除する").tag(count)
+          }
+        }
+        Text(
+          """
+          この Mac の Kinko で開こうとしたときだけ数え、正しいパスワードで開けたら数え直します。削除した金庫は元に戻せません（ゴミ箱にも入りません）。
+          この Mac 専用の金庫では、この Mac の鍵も消すので、コピーやバックアップに残ったファイルもパスワードでは開けなくなります（復旧コードでは開けます）。\
+          パスワードだけの金庫では、コピーされたファイルを別の道具で試されると防げません。
+          """
+        )
+        .font(.callout)
+        .foregroundStyle(.secondary)
+        .fixedSize(horizontal: false, vertical: true)
+      }
     }
     .formStyle(.grouped)
     // Form は中身の高さを外に伝えないので、説明文まで入る高さにしておく（足りないと下が切れてスクロールになる）
-    .frame(minHeight: 250)
+    .frame(minHeight: 470)
+    .sheet(item: Binding(get: { bindingRequest.map(BindingRequest.init) }, set: { bindingRequest = $0?.bind })) { request in
+      BindingSheet(bind: request.bind)
+    }
     .alert(
       "パスワードを \(pendingLimit ?? 0) 回続けて間違えたら、金庫を削除しますか？",
       isPresented: Binding(get: { pendingLimit != nil }, set: { if !$0 { pendingLimit = nil } })
@@ -64,6 +114,10 @@ private struct SecuritySettings: View {
     } message: {
       Text("打ち間違いが続いたときや、ほかの人が試したときにも削除されます。大切な金庫は、バックアップがあることを確かめてから有効にしてください。")
     }
+  }
+
+  private var touchID: Binding<Bool> {
+    Binding(get: { session.isTouchIDEnabled }, set: { enabled in Task { await session.setTouchID(enabled) } })
   }
 
   /// 消さない設定から消す設定へ変えるときだけ確認する（回数を変えるだけなら確認しない）
@@ -115,5 +169,54 @@ struct ChangePasswordMenuButton: View {
       openSettings()
     }
     .disabled(!isEnabled)
+  }
+}
+
+private struct BindingRequest: Identifiable {
+  var bind: Bool
+  var id: Bool { bind }
+}
+
+/// この Mac 専用にする・解除する前に、今のパスワードを聞くシート
+private struct BindingSheet: View {
+  @Environment(VaultSession.self) private var session
+  @Environment(\.dismiss) private var dismiss
+  let bind: Bool
+  @State private var password = ""
+
+  var body: some View {
+    VStack(alignment: .leading, spacing: 12) {
+      Text(bind ? "この Mac 専用にする" : "どの Mac でも開けるように戻す").font(.title2.bold())
+      Text(
+        bind
+          ? "パスワードとこの Mac の鍵の両方で開く金庫に作り直し、復旧コードを出します。Mac を失くしたり初期化したりしたときは、復旧コードがないと開けません。ほかの Mac では開けなくなります。"
+          : "パスワードだけで開ける金庫に作り直します。コピーされたファイルを、ほかの Mac でパスワードを試して開かれるおそれがあります。今の復旧コードは使えなくなります。"
+      )
+      .fixedSize(horizontal: false, vertical: true)
+      PasswordField(title: "今のパスワード", text: $password)
+      KeyChangeResult()
+      HStack {
+        Button("キャンセル") { dismiss() }
+          .keyboardShortcut(.cancelAction)
+        Spacer()
+        if session.isBusy { ProgressView().controlSize(.small) }
+        Button(bind ? "この Mac 専用にする" : "戻す", action: submit)
+          .keyboardShortcut(.defaultAction)
+          .disabled(session.isBusy || password.isEmpty)
+      }
+    }
+    .padding(24)
+    .frame(width: 420)
+    .onSubmit(submit)
+  }
+
+  private func submit() {
+    guard !session.isBusy, !password.isEmpty else { return }
+    let password = password
+    self.password = ""
+    Task {
+      await session.setDeviceBound(bind, password: password)
+      if session.keyChangeError == nil { dismiss() }
+    }
   }
 }

@@ -14,14 +14,26 @@ struct ContentView: View {
       PasswordView(url: url, isCreating: true).lockFrame()
     case .unlocking(let url):
       PasswordView(url: url, isCreating: false).lockFrame()
+    case .recovering(let url):
+      RecoveryView(url: url).lockFrame()
     case .editing(let url):
       WorkspaceView(url: url)
         .frame(minWidth: 640, minHeight: 420)
         .background(WindowFitter(size: CGSize(width: 960, height: 620), mode: .grow))
+        .sheet(item: recoveryCode) { pending in
+          RecoveryCodeView(code: pending.code).environment(session)
+        }
     }
   }
 
-  static let lockSize = CGSize(width: 420, height: 380)
+  /// 作ったときや復旧したときの復旧コードは、編集画面の上に出す（設定画面で作り直したときは設定画面の上）
+  private var recoveryCode: Binding<VaultSession.PendingRecoveryCode?> {
+    Binding(
+      get: { session.pendingRecoveryCode.flatMap { $0.fromSettings ? nil : $0 } },
+      set: { if $0 == nil { session.acknowledgeRecoveryCode() } })
+  }
+
+  static let lockSize = CGSize(width: 440, height: 420)
 }
 
 extension View {
@@ -116,6 +128,12 @@ private struct PasswordView: View {
 
   @State private var password = ""
   @State private var confirmation = ""
+  @State private var bindToThisMac = false
+  @State private var triedTouchID = false
+
+  private var options: VaultSession.UnlockOptions { session.unlockOptions }
+  /// この Mac 専用の金庫なのに、この Mac に鍵がない（ほかの Mac か、鍵を消した）
+  private var isMissingDeviceKey: Bool { !isCreating && options.protection == .deviceBound && !options.hasDeviceKey }
 
   var body: some View {
     VStack(alignment: .leading, spacing: 12) {
@@ -123,12 +141,22 @@ private struct PasswordView: View {
         .font(.title2.bold())
       Text(url.lastPathComponent).foregroundStyle(.secondary)
 
-      PasswordField(title: "パスワード", text: $password)
+      if isMissingDeviceKey {
+        Label("この金庫はこの Mac 専用ですが、この Mac の鍵が見つかりません。復旧コードで開いてください。", systemImage: "key.slash")
+          .foregroundStyle(.orange)
+          .fixedSize(horizontal: false, vertical: true)
+      } else {
+        PasswordField(title: "パスワード", text: $password)
+      }
       if isCreating {
         PasswordField(title: "確認のためもう一度", text: $confirmation)
         Text("忘れた場合データを復元できません。半角の英数字と記号が使えます。ランダムに選んだ単語を 4〜5 個つなげた、長いパスフレーズがおすすめです。")
           .font(.callout)
           .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+        Toggle("この Mac でだけ開けるようにする", isOn: $bindToThisMac)
+          .disabled(!DeviceKeyStore.isSecureEnclaveAvailable)
+          .help("パスワードとこの Mac の鍵の両方で開きます。コピーされたファイルは、ほかの Mac では開けません。復旧コードを控える必要があります。")
       }
       if let message = session.errorMessage {
         Text(message).foregroundStyle(.red)
@@ -144,15 +172,35 @@ private struct PasswordView: View {
 
       HStack {
         Button("キャンセル") { session.cancel() }
+        if !isCreating, options.protection == .deviceBound {
+          Button("復旧コードで開く…") { session.beginRecovery(url) }
+        }
         Spacer()
         if session.isBusy { ProgressView().controlSize(.small) }
-        Button(isCreating ? "作成" : "開く", action: submit)
-          .keyboardShortcut(.defaultAction)
-          .disabled(session.isBusy || password.isEmpty)
+        if !isCreating, options.canUseTouchID {
+          Button {
+            Task { await session.unlockWithTouchID(at: url) }
+          } label: {
+            Image(systemName: "touchid")
+          }
+          .help("Touch ID で開く")
+          .disabled(session.isBusy)
+        }
+        if !isMissingDeviceKey {
+          Button(isCreating ? "作成" : "開く", action: submit)
+            .keyboardShortcut(.defaultAction)
+            .disabled(session.isBusy || password.isEmpty)
+        }
       }
     }
     .padding(28)
     .onSubmit(submit)
+    .task {
+      // Touch ID が使えるなら、開いた時点で一度だけ指紋を求める（取り消せばパスワードで開ける）
+      guard !isCreating, options.canUseTouchID, !triedTouchID else { return }
+      triedTouchID = true
+      await session.unlockWithTouchID(at: url)
+    }
   }
 
   private func submit() {
@@ -163,7 +211,7 @@ private struct PasswordView: View {
     self.confirmation = ""
     Task {
       if isCreating {
-        await session.create(at: url, password: password, confirmation: confirmation)
+        await session.create(at: url, password: password, confirmation: confirmation, bindToThisMac: bindToThisMac)
       } else {
         await session.unlock(at: url, password: password)
       }

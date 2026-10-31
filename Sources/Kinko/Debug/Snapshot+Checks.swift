@@ -106,9 +106,9 @@ extension Snapshot {
 
     let file = folder.appending(path: "変更.kinko")
     let session = VaultSession()
-    wait { await session.create(at: file, password: "old passphrase 1", confirmation: "old passphrase 1") }
+    wait { await session.create(at: file, password: "old passphrase 1", confirmation: "old passphrase 1", bindToThisMac: false) }
     wait { await session.changePassword(current: "wrong passphrase", new: "new passphrase 2", confirmation: "new passphrase 2") }
-    let rejectedWrongCurrent = session.passwordChangeError == "今のパスワードが違います。"
+    let rejectedWrongCurrent = session.keyChangeError == "今のパスワードが違います。"
     wait { await session.changePassword(current: "old passphrase 1", new: "new passphrase 2", confirmation: "new passphrase 2") }
     let data = (try? Data(contentsOf: file)) ?? Data()
     let opensWithNew = (try? UnlockedVault.open(data, password: "new passphrase 2")) != nil
@@ -136,7 +136,7 @@ extension Snapshot {
 
     let file = folder.appending(path: "消える.kinko")
     let session = VaultSession(defaults: defaults)
-    wait { await session.create(at: file, password: "right passphrase", confirmation: "right passphrase") }
+    wait { await session.create(at: file, password: "right passphrase", confirmation: "right passphrase", bindToThisMac: false) }
     session.lock()
     session.eraseLimit = 5
 
@@ -161,6 +161,102 @@ extension Snapshot {
     // 設定は次に開いたときも残っている
     let remembered = VaultSession(defaults: defaults).eraseLimit == 5
     print("snapshot: erase warnedAfterTwo=\(warnedAfterTwo) resetAfterSuccess=\(resetAfterSuccess) warnedLast=\(warnedLast) erased=\(erased) notice=\(session.notice ?? "-") remembered=\(remembered)")
+  }
+
+  /// この Mac 専用の金庫を、実際のファイルと本物の Secure Enclave で通しで確かめる。
+  /// 鍵の置き場所と設定は使い捨てのフォルダにし、本物の鍵と設定を汚さない。
+  /// 「ほかの Mac」は、鍵の置き場所が空のセッションで再現する
+  static func checkDeviceBound(directory: URL) {
+    let folder = directory.appending(path: "tmp-device")
+    try? FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
+    defer { try? FileManager.default.removeItem(at: folder) }
+    let suite = "kinko-snapshot-\(UUID().uuidString)"
+    let defaults = UserDefaults(suiteName: suite)!
+    defer { defaults.removePersistentDomain(forName: suite) }
+    let thisMac = DeviceKeyStore(directory: folder.appending(path: "keys-this"))
+    let otherMac = DeviceKeyStore(directory: folder.appending(path: "keys-other"))
+
+    // 作る：復旧コードが出て、鍵はバックアップから外れている
+    let file = folder.appending(path: "専用.kinko")
+    let session = VaultSession(defaults: defaults, deviceKeys: thisMac)
+    wait { await session.create(at: file, password: "right passphrase", confirmation: "right passphrase", bindToThisMac: true) }
+    let code = session.pendingRecoveryCode?.code
+    session.acknowledgeRecoveryCode()
+    let keyFiles = (try? FileManager.default.contentsOfDirectory(at: thisMac.directory, includingPropertiesForKeys: nil)) ?? []
+    let excluded = keyFiles.allSatisfy { (try? $0.resourceValues(forKeys: [.isExcludedFromBackupKey]).isExcludedFromBackup) == true }
+    let created = session.protection == .deviceBound && code != nil && keyFiles.count == 1 && excluded
+    if let code { renderView(RecoveryCodeView(code: code).environment(session), appearance: .aqua, to: directory.appending(path: "recovery-code.png")) }
+    renderView(SettingsView().environment(session), appearance: .aqua, to: directory.appending(path: "settings-device.png"))
+
+    // Touch ID の鍵と token は指紋なしで作れる。パスワードを変えても引き継ぐ
+    let currentID = { vaultID(file) }
+    session.lock()
+    session.beginUnlocking(file)
+    wait { await session.unlock(at: file, password: "right passphrase") }
+    let reopened = session.phase == .editing(file)
+    // setTouchID は指紋を求めるので、鍵の置き場所に直接作る
+    let touchIDCreated = (try? thisMac.enableTouchID(for: openedVault(file, "right passphrase", thisMac))) != nil
+    let oldID = currentID()
+    wait { await session.changePassword(current: "right passphrase", new: "new passphrase", confirmation: "new passphrase") }
+    let newCode = session.pendingRecoveryCode?.code
+    session.acknowledgeRecoveryCode()
+    let changed = newCode != nil && newCode != code && currentID() != oldID && thisMac.deviceKey(for: oldID) == nil
+      && thisMac.hasTouchID(for: currentID()) && !thisMac.hasTouchID(for: oldID) && touchIDCreated
+    session.lock()
+
+    // ほかの Mac にコピーされた：正しいパスワードでも開けず、復旧コードなら開けて、その Mac 専用に作り直す
+    let copy = folder.appending(path: "コピー.kinko")
+    try? FileManager.default.copyItem(at: file, to: copy)
+    let other = VaultSession(defaults: defaults, deviceKeys: otherMac)
+    other.beginUnlocking(copy)
+    let missingKey = other.unlockOptions.protection == .deviceBound && !other.unlockOptions.hasDeviceKey
+    render(other, size: ContentView.lockSize, appearance: .aqua, to: directory.appending(path: "unlock-missing-key.png"))
+    wait { await other.unlock(at: copy, password: "new passphrase") }
+    let rejectedOnOtherMac = other.phase == .unlocking(copy) && other.errorMessage == VaultError.deviceKeyRequired.localizedDescription
+    other.beginRecovery(copy)
+    render(other, size: ContentView.lockSize, appearance: .aqua, to: directory.appending(path: "recovery.png"))
+    wait { await other.recover(at: copy, code: code?.description ?? "", password: "other passphrase", confirmation: "other passphrase") }
+    let oldCodeRejected = other.errorMessage == VaultError.recoveryFailed.localizedDescription
+    wait { await other.recover(at: copy, code: newCode?.description ?? "", password: "other passphrase", confirmation: "other passphrase") }
+    let recovered = other.phase == .editing(copy) && other.pendingRecoveryCode != nil && other.protection == .deviceBound
+    other.lock()
+
+    // 間違え続けて消すと、この Mac の鍵も消え、残っていたコピーもパスワードでは開けない（復旧コードでは開ける）
+    let backup = folder.appending(path: "バックアップ.kinko")
+    try? FileManager.default.copyItem(at: file, to: backup)
+    session.eraseLimit = 5
+    session.beginUnlocking(file)
+    for _ in 1...5 { wait { await session.unlock(at: file, password: "wrong passphrase") } }
+    let erased = !FileManager.default.fileExists(atPath: file.path) && thisMac.deviceKey(for: vaultID(backup)) == nil
+    session.beginUnlocking(backup)
+    wait { await session.unlock(at: backup, password: "new passphrase") }
+    let backupNeedsCode = session.errorMessage == VaultError.deviceKeyRequired.localizedDescription
+    let backupOpensWithCode = newCode.map { (try? UnlockedVault.open(Data(contentsOf: backup), recoveryCode: $0)) != nil } ?? false
+
+    // パスワードだけの金庫を、この Mac 専用にして、また戻す
+    let plain = folder.appending(path: "ふつう.kinko")
+    let third = VaultSession(defaults: defaults, deviceKeys: thisMac)
+    wait { await third.create(at: plain, password: "plain passphrase", confirmation: "plain passphrase", bindToThisMac: false) }
+    wait { await third.setDeviceBound(true, password: "plain passphrase") }
+    let bound = third.protection == .deviceBound && third.pendingRecoveryCode?.fromSettings == true
+    third.acknowledgeRecoveryCode()
+    wait { await third.setDeviceBound(false, password: "plain passphrase") }
+    let unbound = third.protection == .password
+      && (try? UnlockedVault.open(Data(contentsOf: plain), password: "plain passphrase")) != nil
+
+    print(
+      "snapshot: device created=\(created) reopened=\(reopened) changed=\(changed) missingKey=\(missingKey) "
+        + "rejectedOnOtherMac=\(rejectedOnOtherMac) oldCodeRejected=\(oldCodeRejected) recovered=\(recovered) "
+        + "erased=\(erased) backupNeedsCode=\(backupNeedsCode) backupOpensWithCode=\(backupOpensWithCode) bound=\(bound) unbound=\(unbound)")
+  }
+
+  private static func vaultID(_ url: URL) -> String {
+    (try? UnlockedVault.identifier(ofFile: Data(contentsOf: url))) ?? ""
+  }
+
+  private static func openedVault(_ url: URL, _ password: String, _ keys: DeviceKeyStore) throws -> UnlockedVault {
+    let file = try Data(contentsOf: url)
+    return try UnlockedVault.open(file, password: password, deviceKey: keys.deviceKey(for: vaultID(url))).vault
   }
 }
 #endif

@@ -18,14 +18,14 @@ swift run Kinko --snapshot docs/figure/ui   # 開発用：主な画面を PNG �
 
 | 場所 | 役割 |
 |---|---|
-| `Sources/KinkoCore/Vault/` | 金庫の暗号：パスワード → 鍵（`KeyDerivation`、Argon2id）、鍵の 2 段構成と AES-256-GCM（`Vault`）、`.kinko` ファイル形式（`VaultFile`、形式の図はこのファイルの先頭）、新しい金庫のパスワードの規則（`PasswordPolicy`）、続けて間違えた回数（`UnlockAttempts`） |
+| `Sources/KinkoCore/Vault/` | 金庫の暗号：パスワード → 鍵（`KeyDerivation`、Argon2id）、鍵の 2 段構成と AES-256-GCM（`Vault`）、`.kinko` ファイル形式（`VaultFile`、形式の図はこのファイルの先頭）、新しい金庫のパスワードの規則（`PasswordPolicy`）、続けて間違えた回数（`UnlockAttempts`）、Secure Enclave の鍵の抽象（`DeviceKey`）、復旧コード（`RecoveryCode`） |
 | `Sources/KinkoCore/Workspace/` | 金庫の中身（フォルダとファイルの木）とその操作（`Workspace`）、金庫の外のファイル・フォルダとの読み込みと書き出し（`FileTransfer`） |
 | `Sources/KinkoCore/Markdown/` | リストの続け方と「[]」の近道（`MarkdownLists`）、見出し・太字・記号の位置（`MarkdownSpans`、swift-markdown） |
 | `Sources/KinkoCore/Sheet/` | 表の型（`CellAddress` `Sheet` `CellValue` `CellStyle` `NumberFormat`。セルには入力どおりの文字列を持ち、計算結果は持たない）、行・列・セルの挿入と削除と並べ替え（`SheetEdit`）、つまみでの複製（`SheetFill`） |
 | `Sources/KinkoCore/Formula/` | 数式の字句解析・構文解析（`Formula` `FormulaLexer` `FormulaParser`）と計算（`Calculator`、関数は `Calculator+Functions`。Excel と同じ優先順位・型の変換） |
 | `Sources/KinkoCore/FileFormats/` | .xlsx・CSV の読み書き。ZIP（`Zip`）と XML（`XMLScanner`）も自前で解析し、上限つき。.xlsx は書き出し（`XLSX`）、文字列と数式（`XLSX+Text`）、日付（`XLSX+Dates`）、書式（`XLSX+Styles`）、読み込み（`XLSXReader`）に分けている |
 | `Sources/Kinko/App/` | アプリの入口とメニュー（`KinkoApp`）、画面の切り替えとウィンドウの大きさ（`ContentView`） |
-| `Sources/Kinko/Vault/` | 金庫を開いている間の状態（`VaultSession`。失敗回数での削除もここ）、目のボタンつきのパスワード欄（`PasswordField`） |
+| `Sources/Kinko/Vault/` | 金庫を開いている間の状態（`VaultSession`。失敗回数での削除・鍵の作り直しもここ）、Secure Enclave の鍵の置き場所と Touch ID（`DeviceKeyStore`）、復旧コードの画面（`RecoveryViews`）、目のボタンつきのパスワード欄（`PasswordField`） |
 | `Sources/Kinko/Settings/` | 設定画面（`SettingsView`。セキュリティとパスワードのタブ）、パスワードの変更（`ChangePasswordForm`） |
 | `Sources/Kinko/Workspace/` | サイドバーつきの編集画面（`WorkspaceView`）、ドラッグで運ぶ項目（`ItemReference`） |
 | `Sources/Kinko/TextEditors/` | スペルチェックなどを切ったテキストエディタ（`PlainTextEditor`）、ライブプレビューの Markdown エディタ（`MarkdownEditor`、見た目は `MarkdownStyle`、背景の描画は `MarkdownLayoutManager`） |
@@ -49,7 +49,24 @@ swift run Kinko --snapshot docs/figure/ui   # 開発用：主な画面を PNG �
 - 開く画面では、間違えるたびに「あと何回で削除されるか」を出す。正しいパスワードで開けたら数え直す
 - 削除はゴミ箱を通さない（ゴミ箱から戻して試し続けられないように）
 - 数えるのは、この Mac の Kinko で開こうとしたときだけ。回数は金庫ごとに、アプリの設定（UserDefaults）に置く。金庫の見分けにはヘッダの salt を使う（秘密ではなく、保存し直しても変わらない）
-- 限界：ファイルをコピーして別の道具で総当たりされると効かない。Time Machine などのバックアップに残ったコピーも消えない。手元の Mac での当て推量への備えであり、総当たりへの備えは長いパスワードと Argon2id の重さ
+- この Mac 専用の金庫では、ファイルと一緒にこの Mac の鍵も消す。コピーやバックアップに残ったファイルも、パスワードでは二度と開けなくなる（復旧コードでは開ける）
+- 限界：パスワードだけの金庫では、ファイルをコピーして別の道具で総当たりされると効かない。手元の Mac での当て推量への備えであり、総当たりへの備えは長いパスワードと Argon2id の重さ
+
+## この Mac 専用の金庫と復旧コード
+
+- 作るときに「この Mac でだけ開けるようにする」を選ぶか、設定画面で切り替える。どの Mac でも開ける金庫に戻すこともできる
+- パスワードとこの Mac の Secure Enclave の鍵の両方がないと開けない。ファイルをほかの Mac へコピーされても、何回パスワードを試されても開けない
+- Secure Enclave の鍵は、Secure Enclave が包んだ形で `~/Library/Application Support/Kinko/Keys` に置く。この Mac の Secure Enclave でしか使えず、バックアップからは外す。キーチェーンを使わないのは、キーチェーンに Secure Enclave の鍵を置くには Apple Developer Program の署名が要るため
+- Mac を失くしたり初期化したりしたときのために、復旧コード（英数字 24 文字、120 ビット）を出す。控えたと確かめるまで画面を閉じられない。復旧コードで開いたら、新しいパスワードとこの Mac の新しい鍵で作り直し、新しい復旧コードを出す
+- パスワードの変更・切り替え・復旧では、データ鍵・salt・復旧コードをすべて新しくする（古いパスワードや古い復旧コードが漏れていても、新しいファイルは読めない）
+- 限界：同じ Mac の中で動くマルウェアは、鍵のファイルを消される前に複製できる。復旧コードの控えを見られると、パスワードなしで開かれる。複数の Mac では開けない（必要になったら、Mac ごとの差し込み口を増やす形で足す予定）
+
+## Touch ID
+
+- 設定画面で、開いている金庫を Touch ID で開けるようにできる（オンにするときに指紋で本人か確かめる）。開く画面を出すと、すぐに指紋を求める
+- 指紋が要る Secure Enclave の鍵でデータ鍵を包み、金庫のファイルの外（上と同じ場所）に置く。包むのは公開鍵だけでできるので、パスワードを変えたときも指紋なしで包み直せる
+- 7 日に 1 回はパスワードで開いてもらう（パスワードを忘れないように）。指紋を登録し直すと鍵が使えなくなり、パスワードに戻る
+- Touch ID は便利さのための機能で、コピー対策にはならない（コピー対策は「この Mac 専用」）
 
 ## 鍵の構成
 
@@ -58,6 +75,7 @@ swift run Kinko --snapshot docs/figure/ui   # 開発用：主な画面を PNG �
 ```
 
 - 本文はランダムなデータ鍵で暗号化し、データ鍵をパスワード由来の鍵で包んでヘッダに入れる
+- この Mac 専用の金庫（形式バージョン 2）では、鍵暗号化鍵を `HKDF(Argon2id(パスワード) ‖ ECDH(Secure Enclave の鍵, 使い捨ての公開鍵))` で作る。同じデータ鍵を、復旧コードから HKDF で作った鍵でも包む
 - ヘッダはすべて AAD として認証するので、1 バイトでも書き換えると開けない
 - パスワードの間違いと改ざんはわざと区別しない
 
@@ -125,23 +143,23 @@ SwiftPM はバイナリに SDK バージョンとして最小対応 OS（14.0）
 そのままだと macOS が古い SDK のアプリとみなし、旧来の見た目の互換モードで表示する。
 `scripts/build-app.sh` は `vtool` で実際の SDK バージョンに書き直している。`swift run` で直接起動したときは互換モードの見た目になる。
 
-## 守れるもの・守れないもの（v0.10 時点）
+## 守れるもの・守れないもの（v0.11 時点）
 
 守れる：PC やストレージの盗難、バックアップや同期からの流出、ファイルの改ざん検知。
 
 まだ守れない・未対応：
 - 編集中のマルウェア（メモリ・画面・キー入力）
 - メモリ上の平文の消去（Swift の `String` は確実にゼロ化できない）
-- ファイルをコピーしてのオフライン総当たり（失敗回数での削除は、この Mac の Kinko で開いたときだけ効く。ハードウェア鍵と組み合わせれば、コピーしたファイルだけでは試せなくできる）
+- パスワードだけの金庫を、コピーしてオフラインで総当たりされること（この Mac 専用にすれば、コピーしたファイルだけでは試せない）
 - 書き出したファイルや読み込み元のファイル（平文のまま残る）
 - 自動ロック、クリップボードの消去、未保存のままウィンドウやアプリを閉じたときの確認（ロック時の確認はある）
 - パスワードを「表示」にしている間は Secure Event Input が外れ、キーロガーに対して弱くなる
 
 ## ロードマップ
 
-1. ✅ ファイル形式と暗号化コア、フォルダ構造のワークスペース、Markdown エディタ、表計算（書式・罫線・折り返し・並べ替え・検索）と .xlsx・CSV の読み書き、設定画面と失敗回数での削除（テスト 172 件。Given / When / Then で書き、入力と期待値の対応は引数つきのテストにまとめている）
+1. ✅ ファイル形式と暗号化コア、フォルダ構造のワークスペース、Markdown エディタ、表計算（書式・罫線・折り返し・並べ替え・検索）と .xlsx・CSV の読み書き、設定画面と失敗回数での削除（テスト 186 件。Given / When / Then で書き、入力と期待値の対応は引数つきのテストにまとめている）
 2. ✅ Argon2id による鍵導出（M2 で 1 回 0.43 秒）
-3. Secure Enclave と Touch ID、鍵の破棄による消去
+3. ✅ Secure Enclave によるこの Mac 専用の金庫と復旧コード、Touch ID、鍵の破棄による消去（複数の Mac への対応はまだ）
 4. 自動ロック・クリップボード消去などの編集時の守り
 5. Secure Event Input・画面キャプチャ除外などマルウェア対策
 6. 自分で攻撃して確かめる（lldb でメモリを覗く、ディスク上の平文を探す）
