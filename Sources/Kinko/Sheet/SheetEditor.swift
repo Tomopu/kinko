@@ -37,29 +37,24 @@ struct SheetEditor: View {
   }
 
   private func sheetTabs(_ model: SheetEditorModel) -> some View {
-    HStack(spacing: 2) {
-      ForEach(model.workbook.sheets.indices, id: \.self) { index in
-        let isSelected = index == model.sheetIndex
-        Button(model.workbook.sheets[index].name) { model.selectSheet(index) }
-          .buttonStyle(.plain)
-          .fontWeight(isSelected ? .semibold : .regular)
-          .padding(.horizontal, 10)
-          .padding(.vertical, 3)
-          .background(isSelected ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 5))
-          .contextMenu {
-            Button("名前を変更…") {
-              sheetNameDraft = model.workbook.sheets[index].name
-              renamingSheet = index
+    HStack(spacing: 8) {
+      // シート名は折り返さず 1 行で出し、入りきらなければ横にスクロールする
+      ScrollViewReader { proxy in
+        ScrollView(.horizontal, showsIndicators: false) {
+          HStack(spacing: 2) {
+            ForEach(model.workbook.sheets.indices, id: \.self) { index in
+              sheetTab(model, index)
             }
-            Button("削除…", role: .destructive) { removingSheet = index }
-              .disabled(model.workbook.sheets.count == 1)
+            Button("シートを追加", systemImage: "plus") { model.addSheet() }
+              .labelStyle(.iconOnly)
+              .buttonStyle(.borderless)
+              .hoverLabel("シートを追加")
           }
+        }
+        .onChange(of: model.sheetIndex) { _, index in
+          withAnimation { proxy.scrollTo(index) }
+        }
       }
-      Button("シートを追加", systemImage: "plus") { model.addSheet() }
-        .labelStyle(.iconOnly)
-        .buttonStyle(.borderless)
-        .hoverLabel("シートを追加")
-      Spacer()
       if let message = model.errorMessage {
         Text(message).foregroundStyle(.red).lineLimit(1)
       } else if let summary = model.summary {
@@ -72,6 +67,7 @@ struct SheetEditor: View {
         .foregroundStyle(.secondary)
         .monospacedDigit()
         .textSelection(.enabled)
+        .fixedSize()
       }
     }
     .font(.callout)
@@ -98,6 +94,27 @@ struct SheetEditor: View {
 }
 
 extension SheetEditor {
+  private func sheetTab(_ model: SheetEditorModel, _ index: Int) -> some View {
+    let isSelected = index == model.sheetIndex
+    return Button(model.workbook.sheets[index].name) { model.selectSheet(index) }
+      .buttonStyle(.plain)
+      .fontWeight(isSelected ? .semibold : .regular)
+      .lineLimit(1)
+      .fixedSize()
+      .padding(.horizontal, 10)
+      .padding(.vertical, 3)
+      .background(isSelected ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 5))
+      .id(index)
+      .contextMenu {
+        Button("名前を変更…") {
+          sheetNameDraft = model.workbook.sheets[index].name
+          renamingSheet = index
+        }
+        Button("削除…", role: .destructive) { removingSheet = index }
+          .disabled(model.workbook.sheets.count == 1)
+      }
+  }
+
   /// 集計の数。桁区切りを入れ、小数は 4 桁まで
   static func summaryText(_ number: Double) -> String {
     let decimals = number == number.rounded() ? 0 : 4
@@ -159,6 +176,7 @@ private struct FormulaBar: View {
 
 private struct SheetGrid: NSViewRepresentable {
   let model: SheetEditorModel
+  @AppStorage(SheetBackground.key) private var background = SheetBackground.light
 
   func makeNSView(context: Context) -> SheetGridView {
     let view = SheetGridView(model: model)
@@ -168,5 +186,23 @@ private struct SheetGrid: NSViewRepresentable {
     return view
   }
 
-  func updateNSView(_ view: SheetGridView, context: Context) {}
+  func updateNSView(_ view: SheetGridView, context: Context) {
+    // 表の部分（セルと行・列の見出し）だけを、ダークモードでも明るい見た目で描く。書式バーなどはアプリの見た目に合わせる
+    view.appearance = background == .light ? NSAppearance(named: .aqua) : nil
+  }
+}
+
+/// ダークモードのときの表の背景。既定は Excel と同じ白
+enum SheetBackground: String, CaseIterable {
+  case light
+  case dark
+
+  static let key = "sheetBackground"
+
+  var title: String {
+    switch self {
+    case .light: "白（ライト）"
+    case .dark: "黒（ダーク）"
+    }
+  }
 }

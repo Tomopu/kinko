@@ -83,6 +83,7 @@ enum Snapshot {
     checkEraseAfterFailures(directory: directory)
     checkDeviceBound(directory: directory)
     checkFeatures(url: url, directory: directory)
+    checkSidebar(url: url, directory: directory)
     checkUpdates(directory: directory)
     exit(0)
   }
@@ -150,10 +151,28 @@ enum Snapshot {
     override func zoom(_ sender: Any?) {
       pretendsZoomed = true
       let size = (NSScreen.main?.visibleFrame ?? NSRect(x: 0, y: 0, width: 1440, height: 860)).size
-      setFrame(NSRect(origin: Self.origin, size: size), display: true)
+      setFrame(NSRect(origin: .zero, size: size), display: true)
     }
 
     override var isZoomed: Bool { pretendsZoomed || super.isZoomed }
+
+    /// 大きさを変えるときに画面の中へ動かされても（ContentView の大きさ合わせや SwiftUI など）、場所は画面の外のままにする
+    override func setFrame(_ frameRect: NSRect, display flag: Bool) {
+      super.setFrame(NSRect(origin: Self.origin, size: frameRect.size), display: flag)
+    }
+
+    override func setFrame(_ frameRect: NSRect, display displayFlag: Bool, animate animateFlag: Bool) {
+      super.setFrame(NSRect(origin: Self.origin, size: frameRect.size), display: displayFlag, animate: false)
+    }
+
+    override func setFrameOrigin(_ point: NSPoint) { super.setFrameOrigin(Self.origin) }
+    override func setFrameTopLeftPoint(_ point: NSPoint) { super.setFrameOrigin(Self.origin) }
+    override func center() {}
+
+    /// クリックを試すときだけ、キーウィンドウのふりをする。
+    /// 本当にキーにするにはアプリを前に出す必要があり、使っている人の作業の邪魔になる。キーでないと最初のクリックは捨てられる
+    var pretendsKey = false
+    override var isKeyWindow: Bool { pretendsKey || super.isKeyWindow }
   }
 
   static func findView<T: NSView>(_ type: T.Type, in view: NSView?) -> T? {

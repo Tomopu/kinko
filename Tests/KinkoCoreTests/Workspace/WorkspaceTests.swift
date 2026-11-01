@@ -293,4 +293,78 @@ struct WorkspaceTests {
     // Then
     #expect(workspace == before)
   }
+
+  @Test("同じフォルダへ写すと「のコピー」を付け、中身は同じで、片方を直してももう片方は変わらない")
+  func copyInSameFolder() throws {
+    // Given
+    var (workspace, folder, file) = try sample()
+
+    // When
+    let first = try workspace.copy(file, to: folder)
+    let second = try workspace.copy(file, to: folder)
+    workspace.setText("書き換えた", for: first)
+
+    // Then
+    #expect(workspace.item(first)?.name == "議事録 のコピー.txt")
+    #expect(workspace.item(second)?.name == "議事録 のコピー 2.txt")
+    #expect(workspace.item(second)?.text == "社外秘")
+    #expect(workspace.item(file)?.text == "社外秘")
+  }
+
+  @Test("別のフォルダへ写すとき、同じ名前がなければ名前はそのまま")
+  func copyToOtherFolderKeepsName() throws {
+    // Given
+    var (workspace, folder, file) = try sample()
+
+    // When
+    let copy = try workspace.copy(file, to: nil)
+
+    // Then
+    #expect(workspace.item(copy)?.name == "議事録.txt")
+    #expect(workspace.ancestors(of: copy).isEmpty)
+    #expect(workspace.ancestors(of: file) == [folder])
+  }
+
+  @Test("フォルダは中身ごと写し、中の項目にも新しい id を付ける。名前の「.」は拡張子とみなさない")
+  func copyFolderDeeply() throws {
+    // Given
+    var (workspace, folder, file) = try sample()
+    try workspace.rename(folder, to: "仕事 v1.2")
+
+    // When
+    let copy = try workspace.copy(folder, to: nil)
+
+    // Then
+    let copied = try #require(workspace.item(copy))
+    #expect(copied.name == "仕事 v1.2 のコピー")
+    #expect(copied.children?.map(\.name) == ["議事録.txt"])
+    #expect(copied.children?.first?.id != file)
+    #expect(workspace.item(file) != nil)
+  }
+
+  @Test("フォルダを自分の中へ写しても、写した時点の中身が 1 つ増えるだけ")
+  func copyFolderIntoItself() throws {
+    // Given
+    var (workspace, folder, _) = try sample()
+
+    // When
+    let copy = try workspace.copy(folder, to: folder)
+
+    // Then
+    #expect(workspace.item(folder)?.children?.map(\.name) == ["仕事", "議事録.txt"])
+    #expect(workspace.item(copy)?.children?.map(\.name) == ["議事録.txt"])
+    #expect(workspace.ancestors(of: copy) == [folder])
+  }
+
+  @Test("ない項目は写せず、ファイルの中へも写せない")
+  func copyFailures() throws {
+    // Given
+    var (workspace, folder, file) = try sample()
+    let before = workspace
+
+    // When / Then
+    #expect(throws: WorkspaceError.notFound) { try workspace.copy(UUID(), to: nil) }
+    #expect(throws: WorkspaceError.notAFolder) { try workspace.copy(folder, to: file) }
+    #expect(workspace == before)
+  }
 }

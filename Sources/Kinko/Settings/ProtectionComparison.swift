@@ -1,7 +1,7 @@
 import KinkoCore
 import SwiftUI
 
-/// 「パスワードだけ」と「この Mac 専用」の違いの表。current の列の見出しに色を付け、もう一方の列を薄くする
+/// 「パスワードだけ」と「この Mac 専用」の違いの表。current の列を見出しから一番下まで 1 枚の色で囲み、もう一方の列を薄くする
 struct ProtectionComparison: View {
   var current: UnlockedVault.Protection?
 
@@ -31,6 +31,20 @@ struct ProtectionComparison: View {
       }
     }
     .font(.callout)
+    // 今の守り方の列のセルの範囲を集め、その外枠に 1 枚の背景を敷く（行の区切り線をまたいで続く）
+    .backgroundPreferenceValue(CurrentColumnBounds.self) { anchors in
+      GeometryReader { proxy in
+        if let first = anchors.first {
+          // 右は区切り線の端にそろえ、左と上下だけ文字から少し離す
+          let bounds = anchors.dropFirst().reduce(proxy[first]) { $0.union(proxy[$1]) }
+          let rect = CGRect(x: bounds.minX - 6, y: bounds.minY - 4, width: bounds.width + 6, height: bounds.height + 8)
+          RoundedRectangle(cornerRadius: 6)
+            .fill(Color.accentColor.opacity(0.18))
+            .frame(width: rect.width, height: rect.height)
+            .offset(x: rect.minX, y: rect.minY)
+        }
+      }
+    }
   }
 
   private func header(_ title: String, systemImage: String, isCurrent: Bool) -> some View {
@@ -38,9 +52,7 @@ struct ProtectionComparison: View {
       .fontWeight(.semibold)
       .frame(maxWidth: .infinity, alignment: .leading)
       .padding(.vertical, 3)
-      .padding(.horizontal, 4)
-      .background(isCurrent ? Color.accentColor.opacity(0.18) : .clear, in: RoundedRectangle(cornerRadius: 5))
-      .padding(.horizontal, -4)
+      .anchorPreference(key: CurrentColumnBounds.self, value: .bounds) { isCurrent ? [$0] : [] }
   }
 
   private func cell(_ text: String, isOther: Bool) -> some View {
@@ -48,5 +60,12 @@ struct ProtectionComparison: View {
       .foregroundStyle(isOther ? .secondary : .primary)
       .fixedSize(horizontal: false, vertical: true)
       .frame(maxWidth: .infinity, alignment: .leading)
+      .anchorPreference(key: CurrentColumnBounds.self, value: .bounds) { isOther || current == nil ? [] : [$0] }
   }
+}
+
+/// 今の守り方の列にあるセルの範囲
+private struct CurrentColumnBounds: PreferenceKey {
+  static let defaultValue: [Anchor<CGRect>] = []
+  static func reduce(value: inout [Anchor<CGRect>], nextValue: () -> [Anchor<CGRect>]) { value += nextValue() }
 }

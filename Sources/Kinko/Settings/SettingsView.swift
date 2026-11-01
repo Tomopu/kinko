@@ -1,12 +1,13 @@
 import KinkoCore
 import SwiftUI
 
-/// 設定画面（⌘,）。金庫の守り方（この Mac 専用・Touch ID・間違えたときの削除）と、開いている金庫のパスワードの変更
+/// 設定画面（⌘,）。金庫の守り方（この Mac 専用・Touch ID・間違えたときの削除）、開いている金庫のパスワードの変更、表示
 struct SettingsView: View {
   @Environment(VaultSession.self) private var session
   enum Tab: String {
     case security
     case password
+    case display
   }
 
   static let tabKey = "settingsTab"
@@ -20,8 +21,12 @@ struct SettingsView: View {
       PasswordSettings()
         .tabItem { Label("パスワード変更", systemImage: "key") }
         .tag(Tab.password)
+      DisplaySettings()
+        .tabItem { Label("表示", systemImage: "paintbrush") }
+        .tag(Tab.display)
     }
     .frame(width: 480)
+    .background(SettingsWindow.Tracker())
     .sheet(item: recoveryCode) { pending in
       RecoveryCodeView(code: pending.code)
     }
@@ -32,6 +37,29 @@ struct SettingsView: View {
     Binding(
       get: { session.pendingRecoveryCode.flatMap { $0.fromSettings ? $0 : nil } },
       set: { if $0 == nil { session.acknowledgeRecoveryCode() } })
+  }
+}
+
+/// 見た目の設定。この Mac の Kinko 全体に効き、金庫を開いていなくても変えられる
+private struct DisplaySettings: View {
+  @AppStorage(SheetBackground.key) private var sheetBackground = SheetBackground.light
+
+  var body: some View {
+    Form {
+      Section {
+        Picker("ダークモードのときの表の背景", selection: $sheetBackground) {
+          ForEach(SheetBackground.allCases, id: \.self) { Text($0.title) }
+        }
+        .pickerStyle(.radioGroup)
+      } footer: {
+        Text("白にすると、ダークモードでも表（セルと行・列の見出し）を Excel と同じ明るい見た目で表示します。ライトモードのときは常に白です。")
+          .font(.callout)
+          .foregroundStyle(.secondary)
+          .fixedSize(horizontal: false, vertical: true)
+      }
+    }
+    .formStyle(.grouped)
+    .frame(minHeight: 200)
   }
 }
 

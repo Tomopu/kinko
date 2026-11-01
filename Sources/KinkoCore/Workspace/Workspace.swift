@@ -56,11 +56,23 @@ public struct Workspace: Codable, Equatable, Sendable {
     return selected.isFolder ? selection : items.parent(of: selection) ?? nil
   }
 
+  /// 項目を含むフォルダの id。外側から順に並べる。一番上にある項目や見つからない項目なら空
+  public func ancestors(of id: UUID) -> [UUID] {
+    var result: [UUID] = []
+    var current = id
+    while let parent = items.parent(of: current) ?? nil {
+      result.insert(parent, at: 0)
+      current = parent
+    }
+    return result
+  }
+
   /// 同じフォルダの中でかぶらない名前。「新規ファイル.txt」「新規ファイル 2.txt」…
-  public func uniqueName(_ name: String, in folder: UUID?) -> String {
+  /// フォルダの名前は拡張子で分けない（「v1.2」が「v1 2.2」にならないように）
+  public func uniqueName(_ name: String, in folder: UUID?, isFolder: Bool = false) -> String {
     let siblings = (try? children(of: folder)) ?? []
-    let ext = (name as NSString).pathExtension
-    let stem = (name as NSString).deletingPathExtension
+    let ext = isFolder ? "" : (name as NSString).pathExtension
+    let stem = isFolder ? name : (name as NSString).deletingPathExtension
     var candidate = name
     var number = 2
     while siblings.contains(where: { $0.name.localizedCaseInsensitiveCompare(candidate) == .orderedSame }) {
@@ -109,6 +121,25 @@ public struct Workspace: Codable, Equatable, Sendable {
     _ = try validatedName(item.name, in: folder, excluding: nil)
     remove(id)
     try add(item, to: folder)
+  }
+
+  /// 項目の写しを別のフォルダ（nil なら一番上）に作り、写しの id を返す。フォルダなら中身ごと写す。
+  /// 同じ名前があれば Finder と同じく「〜 のコピー」にする。写しは元と別の項目なので、片方を直してももう片方は変わらない
+  @discardableResult
+  public mutating func copy(_ id: UUID, to folder: UUID?) throws -> UUID {
+    guard let item = item(id) else { throw WorkspaceError.notFound }
+    var copy = item.duplicated()
+    copy.name = copyName(of: item, in: folder)
+    try add(copy, to: folder)
+    return copy.id
+  }
+
+  private func copyName(of item: WorkspaceItem, in folder: UUID?) -> String {
+    let siblings = (try? children(of: folder)) ?? []
+    guard siblings.contains(where: { $0.name.localizedCaseInsensitiveCompare(item.name) == .orderedSame }) else { return item.name }
+    let ext = item.isFolder ? "" : (item.name as NSString).pathExtension
+    let stem = item.isFolder ? item.name : (item.name as NSString).deletingPathExtension
+    return uniqueName(ext.isEmpty ? "\(stem) のコピー" : "\(stem) のコピー.\(ext)", in: folder, isFolder: item.isFolder)
   }
 
   /// 項目を取り除く。フォルダなら中身ごと消える
@@ -196,6 +227,14 @@ public struct WorkspaceItem: Codable, Equatable, Identifiable, Sendable {
 
   public static func folder(_ name: String, children: [WorkspaceItem] = []) -> WorkspaceItem {
     WorkspaceItem(id: UUID(), name: name, children: children.sortedForDisplay(), text: "")
+  }
+
+  /// 中身は同じで、自分と中の項目すべてに新しい id を付けたもの
+  func duplicated() -> WorkspaceItem {
+    var copy = self
+    copy.id = UUID()
+    copy.children = children?.map { $0.duplicated() }
+    return copy
   }
 }
 

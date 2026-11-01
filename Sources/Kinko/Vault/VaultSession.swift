@@ -37,6 +37,9 @@ final class VaultSession {
   private(set) var phase: Phase = .start
   private(set) var workspace = Workspace()
   var selection: WorkspaceItem.ID?
+  /// アプリの中だけのクリップボードに入れた項目。中身は貼り付けるときの状態を使う。
+  /// 平文がほかのアプリから読めるようにならないよう、システムのクリップボードには入れない
+  private(set) var copiedItem: WorkspaceItem.ID?
   private(set) var isDirty = false
   private(set) var isBusy = false
   var errorMessage: String?
@@ -399,8 +402,8 @@ final class VaultSession {
   }
 
   /// 選んでいる場所に置いたときの、かぶらない名前
-  func suggestedName(_ name: String) -> String {
-    workspace.uniqueName(name, in: workspace.folderForNewItem(selection: selection))
+  func suggestedName(_ name: String, isFolder: Bool = false) -> String {
+    workspace.uniqueName(name, in: workspace.folderForNewItem(selection: selection), isFolder: isFolder)
   }
 
   func addItem(_ item: WorkspaceItem) {
@@ -418,6 +421,32 @@ final class VaultSession {
   @discardableResult
   func move(_ id: WorkspaceItem.ID, to folder: WorkspaceItem.ID?) -> Bool {
     edit { try $0.move(id, to: folder) }
+  }
+
+  /// 項目をアプリの中のクリップボードに入れる（⌘C）
+  func copyItem(_ id: WorkspaceItem.ID) {
+    guard workspace.item(id) != nil else { return }
+    copiedItem = id
+    errorMessage = nil
+  }
+
+  /// コピーした項目があって、まだ金庫の中にあるか
+  var canPaste: Bool { copiedItem.flatMap { workspace.item($0) } != nil }
+
+  /// コピーした項目の写しを、選んでいる場所（フォルダならその中、ファイルならその隣）に作る（⌘V）
+  func pasteItem() {
+    guard let copiedItem else { return }
+    guard workspace.item(copiedItem) != nil else {
+      self.copiedItem = nil
+      errorMessage = "コピーした項目は、もう金庫の中にありません。"
+      return
+    }
+    edit { selection = try $0.copy(copiedItem, to: $0.folderForNewItem(selection: selection)) }
+  }
+
+  /// 同じフォルダに写しを作る（「〜 のコピー」）
+  func duplicate(_ id: WorkspaceItem.ID) {
+    edit { selection = try $0.copy(id, to: $0.ancestors(of: id).last) }
   }
 
   func remove(_ id: WorkspaceItem.ID) {
@@ -533,6 +562,7 @@ final class VaultSession {
     pendingRecoveryCode = nil
     workspace = Workspace()
     selection = nil
+    copiedItem = nil
     isDirty = false
     errorMessage = nil
     phase = .start
@@ -554,6 +584,7 @@ final class VaultSession {
     self.vault = vault
     self.workspace = workspace
     selection = workspace.items.first { !$0.isFolder }?.id
+    copiedItem = nil
     isDirty = false
     errorMessage = nil
     phase = .editing(url)

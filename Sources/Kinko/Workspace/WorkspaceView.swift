@@ -10,7 +10,8 @@ struct WorkspaceView: View {
   @State private var nameDraft = ""
   @State private var pendingDeletion: WorkspaceItem?
   @State private var isConfirmingLock = false
-  @State private var isRootExpanded = true
+  /// 開いているフォルダ。フォルダ名のクリックで開け閉めできるよう、OutlineGroup に任せず自分で持つ
+  @State private var expandedFolders: Set<WorkspaceItem.ID> = []
   @State private var showsMarkdownSyntax = false
 
   var body: some View {
@@ -69,17 +70,20 @@ struct WorkspaceView: View {
     // 一覧の空いた所へのドロップはリスト（NSOutlineView）に吸収されて届かないので、
     // 金庫そのものを表す行を一番上に置き、そこを一番上の階層への移動先にする
     return List(selection: $session.selection) {
-      DisclosureGroup(isExpanded: $isRootExpanded) {
-        OutlineGroup(session.workspace.items, children: \.children) { item in
-          SidebarRow(item: item)
-        }
-      } label: {
-        RootRow(title: url.deletingPathExtension().lastPathComponent)
-      }
+      // 金庫の行は見出しとして置くだけで、折りたたまない
+      RootRow(title: url.deletingPathExtension().lastPathComponent)
+      SidebarTree(items: session.workspace.items, expanded: $expandedFolders)
+    }
+    // 新しく作った項目や貼り付けた項目が、閉じたフォルダの中に隠れないようにする
+    .onChange(of: session.selection, initial: true) { _, id in
+      guard let id else { return }
+      expandedFolders.formUnion(session.workspace.ancestors(of: id))
     }
     .contextMenu(forSelectionType: WorkspaceItem.ID.self) { ids in
       if let id = ids.first, let item = session.workspace.item(id) {
         Button("名前を変更…") { promptRename(item) }
+        Button("コピー") { session.copyItem(id) }
+        Button("複製") { session.duplicate(id) }
         Button("書き出す…") {
           session.selection = id
           session.exportSelection()
@@ -99,12 +103,22 @@ struct WorkspaceView: View {
         session.selection = ids.first
         promptNewFolder()
       }
+      Button("ペースト") {
+        session.selection = ids.first
+        session.pasteItem()
+      }
+      .disabled(!session.canPaste)
       Divider()
       Button("読み込む…") {
         session.selection = ids.first
         session.importFiles()
       }
     }
+    // 一覧を選んでいるときの ⌘C・⌘V。システムのクリップボードには入れず、アプリの中だけでやりとりする
+    .onCommand(#selector(NSText.copy(_:))) {
+      if let id = session.selection { session.copyItem(id) }
+    }
+    .onCommand(#selector(NSText.paste(_:))) { session.pasteItem() }
     .onDeleteCommand {
       if let id = session.selection { pendingDeletion = session.workspace.item(id) }
     }
@@ -113,28 +127,37 @@ struct WorkspaceView: View {
         ContentUnavailableView("空の金庫", systemImage: "tray", description: Text("下のボタンでファイルを追加できます。"))
       }
     }
-    .safeAreaInset(edge: .bottom) {
-      HStack(spacing: 4) {
-        Button("新規ファイル", systemImage: "doc.badge.plus", action: promptNewFile)
-          .hoverLabel("新規ファイル（⌘N）")
-        Button("新規の表", systemImage: "tablecells.badge.ellipsis", action: promptNewSheet)
-          .hoverLabel("新規の表（⌥⌘N）")
-        Button("新規フォルダ", systemImage: "folder.badge.plus", action: promptNewFolder)
-          .hoverLabel("新規フォルダ（⇧⌘N）")
-        Button("読み込む", systemImage: "square.and.arrow.down") { session.importFiles() }
-          .hoverLabel("ファイルやフォルダを金庫へ読み込む（⇧⌘I）")
-        Spacer()
-        SettingsLink {
-          Label("設定", systemImage: "gearshape")
-        }
-        .hoverLabel("設定（⌘,）")
+    .safeAreaInset(edge: .bottom, spacing: 0) {
+      // 透けていると、ファイルが多いときに下のファイル名がボタンと重なって読みにくいので、帯に背景を付ける
+      VStack(spacing: 0) {
+        Divider()
+        bottomBar
       }
-      .labelStyle(.iconOnly)
-      .buttonStyle(.borderless)
-      .font(.system(size: 14))
-      .padding(.horizontal, 12)
-      .padding(.vertical, 8)
+      .background(Color(nsColor: .windowBackgroundColor))
     }
+  }
+
+  private var bottomBar: some View {
+    HStack(spacing: 4) {
+      Button("新規ファイル", systemImage: "doc.badge.plus", action: promptNewFile)
+        .hoverLabel("新規ファイル（⌘N）")
+      Button("新規の表", systemImage: "tablecells.badge.ellipsis", action: promptNewSheet)
+        .hoverLabel("新規の表（⌥⌘N）")
+      Button("新規フォルダ", systemImage: "folder.badge.plus", action: promptNewFolder)
+        .hoverLabel("新規フォルダ（⇧⌘N）")
+      Button("読み込む", systemImage: "square.and.arrow.down") { session.importFiles() }
+        .hoverLabel("ファイルやフォルダを金庫へ読み込む（⇧⌘I）")
+      Spacer()
+      SettingsLink {
+        Label("設定", systemImage: "gearshape")
+      }
+      .hoverLabel("設定（⌘,）")
+    }
+    .labelStyle(.iconOnly)
+    .buttonStyle(.borderless)
+    .font(.system(size: 14))
+    .padding(.horizontal, 12)
+    .padding(.vertical, 8)
   }
 
   // MARK: - エディタ
@@ -179,17 +202,20 @@ struct WorkspaceView: View {
   // MARK: - 操作
 
   private func promptNewFile() {
+    SettingsWindow.close()
     nameDraft = session.suggestedName("新規ファイル.md")
     namePrompt = .newFile
   }
 
   private func promptNewSheet() {
+    SettingsWindow.close()
     nameDraft = session.suggestedName("新規の表.xlsx")
     namePrompt = .newSheet
   }
 
   private func promptNewFolder() {
-    nameDraft = session.suggestedName("新規フォルダ")
+    SettingsWindow.close()
+    nameDraft = session.suggestedName("新規フォルダ", isFolder: true)
     namePrompt = .newFolder
   }
 
@@ -252,10 +278,36 @@ private struct RootRow: View {
   }
 }
 
+/// フォルダとファイルの木。フォルダは名前をクリックしても開け閉めできる
+private struct SidebarTree: View {
+  let items: [WorkspaceItem]
+  @Binding var expanded: Set<WorkspaceItem.ID>
+
+  var body: some View {
+    ForEach(items) { item in
+      if let children = item.children {
+        DisclosureGroup(isExpanded: isExpanded(item.id)) {
+          SidebarTree(items: children, expanded: $expanded)
+        } label: {
+          SidebarRow(item: item) { expanded.formSymmetricDifference([item.id]) }
+        }
+      } else {
+        SidebarRow(item: item)
+      }
+    }
+  }
+
+  private func isExpanded(_ id: WorkspaceItem.ID) -> Binding<Bool> {
+    Binding(get: { expanded.contains(id) }, set: { if $0 { expanded.insert(id) } else { expanded.remove(id) } })
+  }
+}
+
 /// サイドバーの 1 行。ドラッグでき、フォルダの上に落とせばその中へ、ファイルの上に落とせばそのファイルと同じフォルダへ移す
 private struct SidebarRow: View {
   @Environment(VaultSession.self) private var session
   let item: WorkspaceItem
+  /// フォルダの名前をクリックしたときに開け閉めする
+  var toggle: (() -> Void)?
 
   @State private var isTargeted = false
 
@@ -264,6 +316,12 @@ private struct SidebarRow: View {
       .lineLimit(1)
       .frame(maxWidth: .infinity, alignment: .leading)
       .contentShape(Rectangle())
+      // クリックを受け取るとリストが行を選ばなくなるので、選ぶのもここでする
+      .simultaneousGesture(
+        TapGesture().onEnded {
+          session.selection = item.id
+          toggle?()
+        }, isEnabled: toggle != nil)
       .draggable(ItemReference(id: item.id)) {
         Label(item.name, systemImage: item.symbolName)
           .padding(6)
