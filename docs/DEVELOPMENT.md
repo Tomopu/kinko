@@ -27,10 +27,28 @@ open build/Kinko.app
   3. 次からはふつうに開ける（ターミナルなら `xattr -dr com.apple.quarantine /Applications/Kinko.app` でも同じ）
 - この Mac 専用の金庫・Touch ID は、キーチェーンを使わない作りなので ad-hoc 署名でも動く
 - Apple Developer Program に入ったら、`SIGN_IDENTITY="Developer ID Application: …"` と `NOTARY_PROFILE=<notarytool store-credentials で保存した名前>` を付けて実行すると、Developer ID で署名し、公証と staple まで行う（受け取った人はダブルクリックだけで開ける）
-- 更新：アプリのメニューの「アップデートを確認…」を押したときだけ、GitHub の `https://api.github.com/repos/<KinkoUpdateRepository>/releases/latest` を調べる（確認先は `Config/Info.plist` の `KinkoUpdateRepository`、今は `Tomopu/kinko`）。新しい版があれば変更内容と「DMG をダウンロード」を出し、入れ替えは手でしてもらう。自分からは通信せず、自動でダウンロードも入れ替えもしない。送るのは版の番号（User-Agent）だけで、GitHub には IP アドレスも見える
-- 新しい版を出すときは、`CFBundleShortVersionString` を上げて `./scripts/make-dmg.sh` を実行し、GitHub でタグ `v<版>` のリリースを作って DMG を添付する（プレリリースにすると確認の対象にならない）。中身の形式が上がる版では、古い版で開けなくなることを変更内容に書いておく
+- 更新の確認：アプリのメニューの「アップデートを確認…」を押したときだけ、GitHub の `https://api.github.com/repos/<KinkoUpdateRepository>/releases/latest` を調べる（確認先は `Config/Info.plist` の `KinkoUpdateRepository`、今は `Tomopu/kinko`）。自分からは通信しない。送るのは版の番号（User-Agent）だけで、GitHub には IP アドレスも見える
+- 新しい版を出すときは、`CFBundleShortVersionString` と `CFBundleVersion` を上げて `./scripts/make-dmg.sh` を実行し、GitHub でタグ `v<版>` のリリースを作って DMG と `<DMG>.sig` を添付する（スクリプトが最後に `gh release create` のコマンドを出す。プレリリースにすると確認の対象にならない）。中身の形式が上がる版では、古い版で開けなくなることを変更内容に書いておく
 - リリースの情報は外から来るデータとして読む：github.com を https で指す URL だけを開き、変更内容はリンクや書式として解釈せずそのまま見せ、答えの大きさにも上限を付ける
 - 配るときは SHA-256 もリリースに書いておくと、受け取った人が改ざんされていないか確かめられる（`shasum -a 256 Kinko-<版>.dmg`）
+
+## 自動のアップデート
+
+「アップデート」を押すと、アプリが自分で新しい版を入れる（`Sources/Kinko/Update/UpdateInstaller.swift`）。
+アプリがダウンロードしたファイルには「インターネットから来た」印（quarantine）が付かないので、入れ替えた版は「このまま開く」なしで開ける。
+その代わり、入れてよいかは Apple ではなく配る人の署名で決める。
+
+1. 書き付け（`Kinko-<版>.dmg.sig`、`UpdateManifest`）を取り、アプリに埋め込んだ公開鍵（`Info.plist` の `KinkoUpdatePublicKey`）で Ed25519 の署名を確かめる。書き付けには版・DMG の名前・大きさ・SHA-256 が入っていて、署名する文の先頭には形式の名前（`kinko-update-v1`）を入れる
+2. 書き付けがこのリリースのもの（版と DMG の名前が同じ）かを見る。古い版の正しい書き付けを使い回して、古い版へ戻させることはできない
+3. DMG を書き付けの大きさまでだけ受け取り、大きさと SHA-256 が合ってから初めて開く（`hdiutil attach -readonly -nobrowse`）
+4. 中の Kinko.app を写し、bundle id・版・コード署名（`codesign --verify --deep --strict`）を確かめる
+5. 保存していない変更があれば保存し、Kinko が終わるのを待って入れ替える小さな処理（`/bin/sh`）を動かして終える。入れ替えは同じボリュームの中での名前の付け替えで、失敗したら元の版に戻して開き直し、手で入れられるように DMG を開く
+
+- 管理者のパスワードは求めない。アプリケーションフォルダに書き込めない、ダウンロードしたまま開いている（App Translocation）などのときは、自動では入れず DMG を手で入れてもらう
+- 署名が合わなかったときは、差し替えられた DMG かもしれないので、手で入れることも勧めない
+- 鍵は `swift run kinko-release keygen` で一度だけ作る。秘密鍵は `~/Library/Application Support/Kinko Release/update-signing.key`（`KINKO_SIGNING_KEY` で変えられる）に自分だけが読める権限で置き、リポジトリには入れない。**なくすと自動の更新を届けられなくなる**（作り直した鍵の公開鍵を入れた版を、もう一度手で入れてもらう）ので、別の安全な場所に控える。**漏れると**、GitHub のリリースを書き換えられる人が偽の更新を配れる
+- 確かめるのは「配る人が署名したか」だけ。配る人の Mac がのっとられて鍵を盗まれたときや、使う人の Mac にすでにマルウェアがあるときは守れない
+- 通し試験：DEBUG ビルドの Kinko.app に `--update-install-test <配布元の URL> <版> <DMG の名前> <結果のファイル>` を付けて `open` で起動すると、ローカルの配布元から取って確かめ、入れ替えまでする（開き直さない）。0.16 の作業では、`/Applications` に置いた試験用のアプリが自分を入れ替えられること、DMG を 1 バイト変えたものや別の鍵の署名を断ることを確かめた
 
 ## 構成
 
@@ -44,9 +62,10 @@ open build/Kinko.app
 | `Sources/KinkoCore/FileFormats/` | .xlsx・CSV の読み書き。ZIP（`Zip`）と XML（`XMLScanner`）も自前で解析し、上限つき。.xlsx は書き出し（`XLSX`）、文字列と数式（`XLSX+Text`）、日付（`XLSX+Dates`）、書式（`XLSX+Styles`）、読み込み（`XLSXReader`）に分けている |
 | `Sources/Kinko/App/` | アプリの入口とメニュー（`KinkoApp`）、画面の切り替えとウィンドウの大きさ（`ContentView`）、マウスを重ねたときの名前の札（`HoverLabel`） |
 | `Sources/Kinko/Vault/` | 金庫を開いている間の状態（`VaultSession`。失敗回数での削除・鍵の作り直しもここ）、Secure Enclave の鍵の置き場所と Touch ID（`DeviceKeyStore`）、復旧コードの画面（`RecoveryViews`）、目のボタンつきのパスワード欄（`PasswordField`） |
-| `Sources/Kinko/Settings/` | 設定画面（`SettingsView`。セキュリティとパスワード変更のタブ）、パスワードの変更（`ChangePasswordForm`）、守り方の違いの表（`ProtectionComparison`） |
+| `Sources/Kinko/Settings/` | 設定画面（`SettingsView`。セキュリティ・パスワード変更・表示のタブ。ウィンドウを閉じるための `SettingsWindow`）、パスワードの変更（`ChangePasswordForm`）、守り方の違いの表（`ProtectionComparison`） |
 | `Sources/Kinko/Workspace/` | サイドバーつきの編集画面（`WorkspaceView`）、ドラッグで運ぶ項目（`ItemReference`） |
-| `Sources/Kinko/Update/` | 「アップデートを確認…」（`UpdateChecker` `UpdateView`。版の比べ方とリリースの読み取りは `Sources/KinkoCore/Update/Release.swift`） |
+| `Sources/Kinko/Update/` | 「アップデートを確認…」（`UpdateChecker` `UpdateView`）と自動の入れ替え（`UpdateInstaller`）。版の比べ方とリリースの読み取りは `Sources/KinkoCore/Update/Release.swift`、署名つきの書き付けは `UpdateManifest.swift` |
+| `Sources/KinkoRelease/` | 配る人だけが使う道具（`kinko-release`）。更新の署名の鍵を作り、DMG に署名する。アプリには入らない |
 | `Sources/Kinko/PDF/` | PDF を見る画面（`PDFViewer`、PDFKit。見るだけで書き換えない） |
 | `Sources/Kinko/TextEditors/` | スペルチェックなどを切ったテキストエディタ（`PlainTextEditor`）、ライブプレビューの Markdown エディタ（`MarkdownEditor`、見た目は `MarkdownStyle`、背景の描画は `MarkdownLayoutManager`） |
 | `Sources/Kinko/Sheet/` | 表のエディタ。状態と操作（`SheetEditorModel` と `+Format` `+Editing` `+Clipboard`）、SwiftUI の外枠（`SheetEditor` `FormatBar` `BorderPanel`）、AppKit のグリッド（`SheetGridView`、座標は `SheetGeometry`、セルは `SheetCellsView` と `+Drawing`、見出しは `SheetHeaderViews`、右クリックは `SheetMenus`） |
@@ -186,7 +205,7 @@ SwiftPM はバイナリに SDK バージョンとして最小対応 OS（14.0）
 
 ## 守れるもの・守れないもの
 
-v0.15 時点。
+v0.16 時点。
 
 守れる：PC やストレージの盗難、バックアップや同期からの流出、ファイルの改ざん検知。
 
@@ -197,10 +216,11 @@ v0.15 時点。
 - 書き出したファイルや読み込み元のファイル（平文のまま残る）
 - 自動ロック、クリップボードの消去、未保存のままウィンドウやアプリを閉じたときの確認（ロック時の確認はある）
 - パスワードを「表示」にしている間は Secure Event Input が外れ、キーロガーに対して弱くなる
+- 自動のアップデートの署名の秘密鍵を盗まれること（GitHub のリリースも書き換えられると、偽の更新を入れさせられる）
 
 ## ロードマップ
 
-1. ✅ ファイル形式と暗号化コア、フォルダ構造のワークスペース、Markdown エディタ、表計算（書式・罫線・折り返し・並べ替え・検索）と .xlsx・CSV の読み書き、設定画面と失敗回数での削除、PDF の表示、DMG での配布とアップデートの確認（テスト 197 件。Given / When / Then で書き、入力と期待値の対応は引数つきのテストにまとめている）
+1. ✅ ファイル形式と暗号化コア、フォルダ構造のワークスペース、Markdown エディタ、表計算（書式・罫線・折り返し・並べ替え・検索）と .xlsx・CSV の読み書き、設定画面と失敗回数での削除、PDF の表示、DMG での配布と署名つきの自動アップデート（テスト 210 件。Given / When / Then で書き、入力と期待値の対応は引数つきのテストにまとめている）
 2. ✅ Argon2id による鍵導出（M2 で 1 回 0.43 秒）
 3. ✅ Secure Enclave によるこの Mac 専用の金庫と復旧コード、Touch ID、鍵の破棄による消去（複数の Mac への対応はまだ）
 4. 自動ロック・クリップボード消去などの編集時の守り

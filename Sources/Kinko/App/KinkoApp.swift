@@ -8,6 +8,7 @@ struct KinkoApp: App {
   init() {
     #if DEBUG
     Snapshot.runIfRequested()
+    UpdateInstaller.runInstallTestIfRequested()
     #endif
   }
 
@@ -56,6 +57,7 @@ struct KinkoApp: App {
     Window("アップデート", id: "update") {
       UpdateView()
         .environment(updates)
+        .environment(session)
     }
     .windowResizability(.contentSize)
 

@@ -1,5 +1,5 @@
 <?xml version="1.0" encoding="UTF-8"?>
-<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyLists/1.0.dtd">
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
 <plist version="1.0">
 <dict>
 	<key>CFBundleDevelopmentRegion</key>
@@ -17,22 +17,11 @@
 	<key>CFBundlePackageType</key>
 	<string>APPL</string>
 	<key>CFBundleShortVersionString</key>
-	<string>0.15.0</string>
+	<string>0.16.0</string>
 	<key>CFBundleVersion</key>
-	<string>2</string>
-	<key>UTExportedTypeDeclarations</key>
-	<array>
-		<dict>
-			<key>UTTypeIdentifier</key>
-			<string>com.tomopu.kinko.item-reference</string>
-			<key>UTTypeDescription</key>
-			<string>Kinko の項目</string>
-			<key>UTTypeConformsTo</key>
-			<array>
-				<string>public.data</string>
-			</array>
-		</dict>
-	</array>
+	<string>3</string>
+	<key>KinkoUpdatePublicKey</key>
+	<string>e2+K2814ia40vLA+uBQGhSrXxMpsnZIGXW8gAo15P+s=</string>
 	<key>KinkoUpdateRepository</key>
 	<string>Tomopu/kinko</string>
 	<key>LSApplicationCategoryType</key>
@@ -41,5 +30,18 @@
 	<string>14.0</string>
 	<key>NSHighResolutionCapable</key>
 	<true/>
+	<key>UTExportedTypeDeclarations</key>
+	<array>
+		<dict>
+			<key>UTTypeConformsTo</key>
+			<array>
+				<string>public.data</string>
+			</array>
+			<key>UTTypeDescription</key>
+			<string>Kinko の項目</string>
+			<key>UTTypeIdentifier</key>
+			<string>com.tomopu.kinko.item-reference</string>
+		</dict>
+	</array>
 </dict>
 </plist>

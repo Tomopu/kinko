@@ -20,6 +20,8 @@ let package = Package(
       ]
     ),
     .executableTarget(name: "Kinko", dependencies: ["KinkoCore"]),
+    // 配る人だけが使う道具（アップデートの署名の鍵を作り、DMG に署名する）。アプリには入らない
+    .executableTarget(name: "kinko-release", dependencies: ["KinkoCore"], path: "Sources/KinkoRelease"),
     .testTarget(name: "KinkoCoreTests", dependencies: ["KinkoCore"]),
   ]
 )

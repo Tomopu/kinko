@@ -106,7 +106,21 @@ extension Snapshot {
       (.failed(UpdateError.network("オフライン").localizedDescription), "update-failed"),
     ] {
       let checker = UpdateChecker(current: current, repository: "Tomopu/kinko", state: state)
-      renderView(UpdateView().environment(checker).background(Color(nsColor: .windowBackgroundColor)), appearance: .aqua, to: directory.appending(path: "\(name).png"))
+      renderView(UpdateView().environment(checker).environment(VaultSession()).background(Color(nsColor: .windowBackgroundColor)), appearance: .aqua, to: directory.appending(path: "\(name).png"))
+    }
+
+    // 自動での入れ替え：押す前・ダウンロード中・準備ができた・失敗した
+    let prepared = UpdateInstaller.Prepared(
+      version: release.version, target: URL(fileURLWithPath: "/Applications/Kinko.app"), app: URL(fileURLWithPath: "/tmp/Kinko.app"),
+      work: URL(fileURLWithPath: "/tmp"), dmg: URL(fileURLWithPath: "/tmp/Kinko-0.14.0.dmg"))
+    for (install, name) in [
+      (UpdateChecker.Install.idle, "update-auto"), (.working("ダウンロードしています…", 0.4), "update-downloading"),
+      (.ready(prepared), "update-ready"), (.rejected, "update-bad-signature"),
+    ] {
+      let checker = UpdateChecker(current: current, repository: "Tomopu/kinko", state: .available(release), install: install)
+      renderView(
+        UpdateView().environment(checker).environment(VaultSession()).background(Color(nsColor: .windowBackgroundColor)),
+        appearance: .aqua, to: directory.appending(path: "\(name).png"))
     }
 
     guard ProcessInfo.processInfo.environment["KINKO_SNAPSHOT_NETWORK"] == "1" else { return }

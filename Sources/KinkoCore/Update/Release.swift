@@ -39,15 +39,18 @@ public struct Release: Equatable, Sendable {
   public var page: URL
   /// 添付された DMG。なければ nil（リリースのページから手で選んでもらう）
   public var dmg: URL?
+  /// DMG の書き付け（`<DMG の名前>.sig`、UpdateManifest）。なければ自動では入れず、手で入れてもらう
+  public var signature: URL?
 
   public static let maxNotesLength = 4_000
 
-  public init(version: AppVersion, title: String, notes: String, page: URL, dmg: URL?) {
+  public init(version: AppVersion, title: String, notes: String, page: URL, dmg: URL?, signature: URL? = nil) {
     self.version = version
     self.title = title
     self.notes = notes
     self.page = page
     self.dmg = dmg
+    self.signature = dmg == nil ? nil : signature
   }
 
   private struct Payload: Decodable {
@@ -77,11 +80,15 @@ public struct Release: Equatable, Sendable {
       throw UpdateError.unreadable
     }
     guard let page = githubURL(payload.html_url) else { throw UpdateError.unreadable }
-    let dmg = payload.assets?.first { $0.name.lowercased().hasSuffix(".dmg") }.flatMap { githubURL($0.browser_download_url) }
+    let dmgAsset = payload.assets?.first { $0.name.lowercased().hasSuffix(".dmg") }
+    let dmg = dmgAsset.flatMap { githubURL($0.browser_download_url) }
+    let signature = dmgAsset.flatMap { asset in
+      payload.assets?.first { $0.name.lowercased() == asset.name.lowercased() + ".sig" }
+    }.flatMap { githubURL($0.browser_download_url) }
     var notes = (payload.body ?? "").replacingOccurrences(of: "\r\n", with: "\n").trimmingCharacters(in: .whitespacesAndNewlines)
     if notes.count > maxNotesLength { notes = String(notes.prefix(maxNotesLength)) + "…" }
     let title = (payload.name ?? "").trimmingCharacters(in: .whitespacesAndNewlines)
-    return Release(version: version, title: title.isEmpty ? payload.tag_name : String(title.prefix(200)), notes: notes, page: page, dmg: dmg)
+    return Release(version: version, title: title.isEmpty ? payload.tag_name : String(title.prefix(200)), notes: notes, page: page, dmg: dmg, signature: signature)
   }
 
   /// https で github.com を指す URL だけを通す（ほかのサイトへ誘導されないように）
@@ -99,12 +106,18 @@ public enum UpdateError: Error, Equatable, LocalizedError {
   case noRelease
   case unreadable
   case network(String)
+  /// 書き付けの署名が合わない、または書き付けとダウンロードした DMG が合わない
+  case badSignature
+  /// 自動では入れ替えられない（理由つき）。DMG を手で入れてもらう
+  case cannotInstall(String)
 
   public var errorDescription: String? {
     switch self {
     case .noRelease: "公開されているリリースが見つかりませんでした。"
     case .unreadable: "リリースの情報を読めませんでした。"
     case .network(let reason): "インターネットにつながっているか確かめてください。（\(reason)）"
+    case .badSignature: "ダウンロードしたものが、配布元の署名と合いませんでした。安全のため入れ替えません。"
+    case .cannotInstall(let reason): "自動では入れ替えられませんでした。\(reason)"
     }
   }
 }

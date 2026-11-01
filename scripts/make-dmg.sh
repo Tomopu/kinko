@@ -6,6 +6,9 @@
 #   SIGN_IDENTITY="Developer ID Application: 名前 (チームID)"  署名に使う証明書
 #   NOTARY_PROFILE="kinko"  `xcrun notarytool store-credentials kinko` で保存した認証情報の名前
 # DMG_LAYOUT=0 にすると、Finder でのアイコンの並べ方を省く（Finder を操作する許可を求められたくないとき）
+#
+# Info.plist に KinkoUpdatePublicKey があれば、最後に DMG へ更新の署名をして <DMG>.sig を作る（アプリが自分で更新を入れるときに確かめる）。
+# 署名の秘密鍵（kinko-release keygen で作ったもの）がない、または公開鍵と対でないときは、署名のない DMG を配らないよう失敗する
 set -euo pipefail
 root="$(cd "$(dirname "$0")/.." && pwd)"
 app="$root/build/Kinko.app"
@@ -101,5 +104,15 @@ if [[ -n "${SIGN_IDENTITY:-}" ]]; then
   fi
 fi
 
+public_key="$(/usr/libexec/PlistBuddy -c "Print KinkoUpdatePublicKey" "$app/Contents/Info.plist" 2>/dev/null || true)"
+if [[ -n "$public_key" ]]; then
+  # 公証の結果を貼り付けると DMG が変わるので、署名はいちばん最後にする
+  swift build -c release --package-path "$root" --product kinko-release >/dev/null
+  "$(swift build -c release --package-path "$root" --show-bin-path)/kinko-release" sign "$dmg" "$version" "$public_key"
+fi
+
 shasum -a 256 "$dmg"
 echo "built $dmg"
+if [[ -f "$dmg.sig" ]]; then
+  echo "リリース: gh release create v$version \"$dmg\" \"$dmg.sig\" --title \"Kinko $version\" --notes-file <変更内容>"
+fi

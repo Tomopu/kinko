@@ -56,6 +56,23 @@ struct ReleaseTests {
     #expect(!release.isNewer(than: AppVersion("0.14")!))
   }
 
+  @Test("DMG と同じ名前に .sig を付けた添付を、書き付けとして読む。なければ nil")
+  func readsSignatureAsset() throws {
+    // Given
+    let base = "https://github.com/Tomopu/kinko/releases/download/v0.16.0/"
+    let assets = [("Kinko-0.16.0.dmg", base + "Kinko-0.16.0.dmg"), ("Kinko-0.16.0.dmg.sig", base + "Kinko-0.16.0.dmg.sig")]
+
+    // When
+    let signed = try Release.decode(payload(assets: assets))
+    let unsigned = try Release.decode(payload())
+    let elsewhere = try Release.decode(payload(assets: [assets[0], ("Kinko-0.16.0.dmg.sig", "https://evil.example.com/a.sig")]))
+
+    // Then
+    #expect(signed.signature?.lastPathComponent == "Kinko-0.16.0.dmg.sig")
+    #expect(unsigned.signature == nil)
+    #expect(elsewhere.signature == nil)
+  }
+
   @Test("DMG のないリリースや、github.com 以外を指す DMG は、ページへ案内する")
   func dmgMustBeOnGitHub() throws {
     // Given / When
